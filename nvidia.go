@@ -3,11 +3,12 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
-
 	"golang.org/x/net/context"
 	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
 )
@@ -22,13 +23,29 @@ func getDevices() []*pluginapi.Device {
 	n, err := nvml.GetDeviceCount()
 	check(err)
 
+	convert := func(u *uint) string {
+		if u == nil {
+			return ""
+		}
+		return strconv.FormatInt(int64(*u), 10)
+	}
+
 	var devs []*pluginapi.Device
 	for i := uint(0); i < n; i++ {
 		d, err := nvml.NewDeviceLite(i)
 		check(err)
+
+		memory := convert(d.Clocks.Memory)
 		devs = append(devs, &pluginapi.Device{
 			ID:     d.UUID,
 			Health: pluginapi.Healthy,
+			Properties: map[string]string{
+				"Type":      fmt.Sprintf("%s-%s", *d.Model, memory),
+				"Model":     *d.Model,
+				"Memory":    memory,
+				"Cores":     convert(d.Clocks.Cores),
+				"Bandwidth": convert(d.PCI.Bandwidth),
+			},
 		})
 	}
 
