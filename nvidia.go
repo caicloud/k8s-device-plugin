@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
@@ -24,15 +25,47 @@ func getDevices() []*pluginapi.Device {
 
 	var devs []*pluginapi.Device
 	for i := uint(0); i < n; i++ {
-		d, err := nvml.NewDeviceLite(i)
+		d, err := nvml.NewDevice(i)
 		check(err)
+
+		memory := formatUInt(d.Clocks.Memory, "memory")
+		model := formatModel(d.Model)
 		devs = append(devs, &pluginapi.Device{
 			ID:     d.UUID,
 			Health: pluginapi.Healthy,
+			Properties: map[string]string{
+				"Type":      fmt.Sprintf("%s.%s", model, memory),
+				"Model":     model,
+				"Memory":    memory,
+				"Cores":     formatUInt(d.Clocks.Cores, "cores"),
+				"Bandwidth": formatUInt(d.PCI.Bandwidth, "bandwidth"),
+			},
 		})
 	}
 
 	return devs
+}
+
+func formatUInt(u *uint, tag string) string {
+	if u == nil {
+		return ""
+	}
+	switch tag {
+	case "memory":
+		return fmt.Sprintf("%dMB", *u)
+	case "cores":
+		return fmt.Sprintf("%dMHz", *u)
+	case "bandwidth":
+		return fmt.Sprintf("%dMB/s", *u)
+	}
+	return ""
+}
+
+func formatModel(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return strings.Replace(*s, " ", ".", -1)
 }
 
 func deviceExists(devs []*pluginapi.Device, id string) bool {
