@@ -78,6 +78,7 @@ type Device struct {
 	PCI         PCIInfo
 	Clocks      ClockInfo
 	Topology    []P2PLink
+	Memory      MemoryInfo
 }
 
 type UtilizationInfo struct {
@@ -104,6 +105,7 @@ type ECCErrorsInfo struct {
 }
 
 type MemoryInfo struct {
+	Total      *uint64
 	GlobalUsed *uint64
 	ECCErrors  ECCErrorsInfo
 }
@@ -203,6 +205,8 @@ func NewDevice(idx uint) (device *Device, err error) {
 	assert(err)
 	ccore, cmem, err := h.deviceGetMaxClockInfo()
 	assert(err)
+	total, _, err := h.deviceGetMemoryInfo()
+	assert(err)
 
 	if minor == nil || busid == nil || uuid == nil {
 		return nil, ErrUnsupportedGPU
@@ -227,12 +231,18 @@ func NewDevice(idx uint) (device *Device, err error) {
 			Cores:  ccore, // MHz
 			Memory: cmem,  // MHz
 		},
+		Memory: MemoryInfo{
+			Total: total, // MiB
+		},
 	}
 	if power != nil {
 		*device.Power /= 1000 // W
 	}
 	if bar1 != nil {
 		*device.PCI.BAR1 /= 1024 * 1024 // MiB
+	}
+	if total != nil {
+		*device.Memory.Total /= 1024 * 1024 // MiB
 	}
 	return
 }
@@ -286,7 +296,7 @@ func (d *Device) Status() (status *DeviceStatus, err error) {
 	assert(err)
 	udec, err := d.deviceGetDecoderUtilization()
 	assert(err)
-	mem, err := d.deviceGetMemoryInfo()
+	_, used, err := d.deviceGetMemoryInfo()
 	assert(err)
 	ccore, cmem, err := d.deviceGetClockInfo()
 	assert(err)
@@ -309,7 +319,7 @@ func (d *Device) Status() (status *DeviceStatus, err error) {
 			Decoder: udec, // %
 		},
 		Memory: MemoryInfo{
-			GlobalUsed: mem,
+			GlobalUsed: used,
 			ECCErrors: ECCErrorsInfo{
 				L1Cache: el1,
 				L2Cache: el2,
@@ -331,7 +341,7 @@ func (d *Device) Status() (status *DeviceStatus, err error) {
 	if power != nil {
 		*status.Power /= 1000 // W
 	}
-	if mem != nil {
+	if used != nil {
 		*status.Memory.GlobalUsed /= 1024 * 1024 // MiB
 	}
 	if bar1 != nil {
