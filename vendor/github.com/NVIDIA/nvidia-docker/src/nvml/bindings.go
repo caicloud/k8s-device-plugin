@@ -22,7 +22,7 @@ const (
 )
 
 type handle struct{ dev C.nvmlDevice_t }
-type EventSet struct { set C.nvmlEventSet_t }
+type EventSet struct{ set C.nvmlEventSet_t }
 type Event struct {
 	UUID  *string
 	Etype uint64
@@ -325,14 +325,14 @@ func (h handle) deviceGetDecoderUtilization() (*uint, error) {
 	return uintPtr(usage), errorString(r)
 }
 
-func (h handle) deviceGetMemoryInfo() (*uint64, error) {
+func (h handle) deviceGetMemoryInfo() (*uint64, *uint64, error) {
 	var mem C.nvmlMemory_t
 
 	r := C.nvmlDeviceGetMemoryInfo(h.dev, &mem)
 	if r == C.NVML_ERROR_NOT_SUPPORTED {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return uint64Ptr(mem.used), errorString(r)
+	return uint64Ptr(mem.total), uint64Ptr(mem.used), errorString(r)
 }
 
 func (h handle) deviceGetClockInfo() (*uint, *uint, error) {

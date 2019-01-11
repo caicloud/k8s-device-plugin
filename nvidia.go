@@ -3,11 +3,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
 	"github.com/NVIDIA/nvidia-docker/src/nvml"
-
 	"golang.org/x/net/context"
 	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
 )
@@ -24,15 +24,52 @@ func getDevices() []*pluginapi.Device {
 
 	var devs []*pluginapi.Device
 	for i := uint(0); i < n; i++ {
-		d, err := nvml.NewDeviceLite(i)
+		d, err := nvml.NewDevice(i)
 		check(err)
+
+		memory := formatMemory(d.Memory.Total)
+		model := formatModel(d.Model)
 		devs = append(devs, &pluginapi.Device{
 			ID:     d.UUID,
 			Health: pluginapi.Healthy,
+			Properties: map[string]string{
+				"type":      fmt.Sprintf("%s.%s", model, memory),
+				"model":     model,
+				"memory":    memory,
+				"cores":     formatUInt(d.Clocks.Cores, "cores"),
+				"bandwidth": formatUInt(d.PCI.Bandwidth, "bandwidth"),
+			},
 		})
 	}
 
 	return devs
+}
+
+func formatUInt(u *uint, tag string) string {
+	if u == nil {
+		return ""
+	}
+	switch tag {
+	case "cores":
+		return fmt.Sprintf("%dMHz", *u)
+	case "bandwidth":
+		return fmt.Sprintf("%dMB/s", *u)
+	}
+	return ""
+}
+
+func formatMemory(u *uint64) string {
+	if u == nil {
+		return ""
+	}
+	return fmt.Sprintf("%dMiB", *u)
+}
+
+func formatModel(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return strings.Replace(*s, " ", ".", -1)
 }
 
 func deviceExists(devs []*pluginapi.Device, id string) bool {
