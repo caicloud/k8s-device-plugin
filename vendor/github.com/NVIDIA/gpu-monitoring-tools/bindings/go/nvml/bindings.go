@@ -330,14 +330,37 @@ func (h handle) deviceGetDecoderUtilization() (*uint, error) {
 	return uintPtr(usage), errorString(r)
 }
 
-func (h handle) deviceGetMemoryInfo() (*uint64, error) {
+func (h handle) deviceGetMemoryInfo() (totalMem *uint64, devMem DeviceMemory, err error) {
 	var mem C.nvmlMemory_t
 
 	r := C.nvmlDeviceGetMemoryInfo(h.dev, &mem)
 	if r == C.NVML_ERROR_NOT_SUPPORTED {
-		return nil, nil
+		return
 	}
-	return uint64Ptr(mem.used), errorString(r)
+
+	err = errorString(r)
+	if r != C.NVML_SUCCESS {
+		return
+	}
+
+	totalMem = uint64Ptr(mem.total)
+	if totalMem != nil {
+		*totalMem /= 1024 * 1024 // MiB
+	}
+
+	devMem = DeviceMemory{
+		Used: uint64Ptr(mem.used),
+		Free: uint64Ptr(mem.free),
+	}
+
+	if devMem.Used != nil {
+		*devMem.Used /= 1024 * 1024 // MiB
+	}
+
+	if devMem.Free != nil {
+		*devMem.Free /= 1024 * 1024 // MiB
+	}
+	return
 }
 
 func (h handle) deviceGetClockInfo() (*uint, *uint, error) {
@@ -543,4 +566,69 @@ func processName(pid uint) (string, error) {
 		return "", err
 	}
 	return strings.TrimSuffix(string(d), "\n"), err
+}
+
+func (h handle) getAccountingInfo() (accountingInfo Accounting, err error) {
+	var mode C.nvmlEnableState_t
+	var buffer C.uint
+
+	r := C.nvmlDeviceGetAccountingMode(h.dev, &mode)
+	if r == C.NVML_ERROR_NOT_SUPPORTED {
+		return
+	}
+
+	if r != C.NVML_SUCCESS {
+		return accountingInfo, errorString(r)
+	}
+
+	r = C.nvmlDeviceGetAccountingBufferSize(h.dev, &buffer)
+	if r == C.NVML_ERROR_NOT_SUPPORTED {
+		return
+	}
+
+	if r != C.NVML_SUCCESS {
+		return accountingInfo, errorString(r)
+	}
+
+	accountingInfo = Accounting{
+		Mode:       ModeState(mode),
+		BufferSize: uintPtr(buffer),
+	}
+	return
+}
+
+func (h handle) getDisplayInfo() (display Display, err error) {
+	var mode, isActive C.nvmlEnableState_t
+
+	r := C.nvmlDeviceGetDisplayActive(h.dev, &mode)
+	if r == C.NVML_ERROR_NOT_SUPPORTED {
+		return
+	}
+
+	if r != C.NVML_SUCCESS {
+		return display, errorString(r)
+	}
+
+	r = C.nvmlDeviceGetDisplayMode(h.dev, &isActive)
+	if r == C.NVML_ERROR_NOT_SUPPORTED {
+		return
+	}
+	if r != C.NVML_SUCCESS {
+		return display, errorString(r)
+	}
+	display = Display{
+		Mode:   ModeState(mode),
+		Active: ModeState(isActive),
+	}
+	return
+}
+
+func (h handle) getPeristenceMode() (state ModeState, err error) {
+	var mode C.nvmlEnableState_t
+
+	r := C.nvmlDeviceGetPersistenceMode(h.dev, &mode)
+	if r == C.NVML_ERROR_NOT_SUPPORTED {
+		return
+	}
+	return ModeState(mode), errorString(r)
 }
