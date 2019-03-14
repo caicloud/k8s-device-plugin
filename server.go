@@ -11,8 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	clientset "github.com/caicloud/clientset/kubernetes"
+	"github.com/caicloud/clientset/pkg/apis/resource/v1beta1"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
 )
 
@@ -21,6 +26,7 @@ const (
 	serverSock             = pluginapi.DevicePluginPath + "nvidia.sock"
 	envDisableHealthChecks = "DP_DISABLE_HEALTHCHECKS"
 	allHealthChecks        = "xids"
+	formatResourceName     = "nvidia.com"
 )
 
 // NvidiaDevicePlugin implements the Kubernetes device plugin API
@@ -32,17 +38,28 @@ type NvidiaDevicePlugin struct {
 	health chan *pluginapi.Device
 
 	server *grpc.Server
+
+	resourceClient *clientset.Clientset
 }
 
 // NewNvidiaDevicePlugin returns an initialized NvidiaDevicePlugin
-func NewNvidiaDevicePlugin() *NvidiaDevicePlugin {
-	return &NvidiaDevicePlugin{
-		devs:   getDevices(),
+func NewNvidiaDevicePlugin(resourceClient *clientset.Clientset) *NvidiaDevicePlugin {
+	nodeName := os.Getenv("NODE_NAME")
+	devs, nvmlDevs := getDevices()
+
+	nvidiaDevicePlugin := &NvidiaDevicePlugin{
+		devs:   devs,
 		socket: serverSock,
 
 		stop:   make(chan interface{}),
 		health: make(chan *pluginapi.Device),
+
+		resourceClient: resourceClient,
 	}
+
+	nvidiaDevicePlugin.generateExtendedResources(nvmlDevs, nodeName)
+
+	return nvidiaDevicePlugin
 }
 
 func (m *NvidiaDevicePlugin) GetDevicePluginOptions(context.Context, *pluginapi.Empty) (*pluginapi.DevicePluginOptions, error) {
@@ -140,6 +157,7 @@ func (m *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.Device
 		case d := <-m.health:
 			// FIXME: there is no way to recover from the Unhealthy state.
 			d.Health = pluginapi.Unhealthy
+			m.updateExtendedResource(d.ID, v1beta1.ExtendedResourcePending)
 			s.Send(&pluginapi.ListAndWatchResponse{Devices: m.devs})
 		}
 	}
@@ -168,7 +186,6 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 
 		responses.ContainerResponses = append(responses.ContainerResponses, &response)
 	}
-
 	return &responses, nil
 }
 
@@ -227,4 +244,114 @@ func (m *NvidiaDevicePlugin) Serve() error {
 	log.Println("Registered device plugin with Kubelet")
 
 	return nil
+}
+
+func (m *NvidiaDevicePlugin) generateExtendedResources(devs []*nvml.Device, nodeName string) {
+	if nodeName == "" {
+		log.Fatalf("nodeName cannot be empty.")
+	}
+
+	for _, dev := range devs {
+		extendedResourceName := formatExtendedName(dev.UUID)
+		extendedResource := &v1beta1.ExtendedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: extendedResourceName,
+				Labels: map[string]string{
+					"hostname":  nodeName,
+					"model":     strings.Replace(convertString(dev.Model), " ", "-", -1),
+					"cores":     convertCoreUint(dev.Clocks.Cores),
+					"memory":    convertUint64(dev.Memory),
+					"bandwidth": convertBandwidthUint(dev.PCI.Bandwidth),
+				},
+			},
+			Spec: v1beta1.ExtendedResourceSpec{
+				RawResourceName: resourceName,
+				DeviceID:        dev.UUID,
+				NodeName:        nodeName,
+				Properties: map[string]string{
+					"Model":     convertString(dev.Model),
+					"Cores":     convertCoreUint(dev.Clocks.Cores),
+					"Memory":    convertUint64(dev.Memory),
+					"Bandwidth": convertBandwidthUint(dev.PCI.Bandwidth),
+				},
+			},
+			Status: v1beta1.ExtendedResourceStatus{
+				Phase: v1beta1.ExtendedResourceAvailable,
+			},
+		}
+
+		extendedResourceOrigin, err := m.resourceClient.ResourceV1beta1().ExtendedResources().Get(extendedResourceName, metav1.GetOptions{})
+		if err == nil && extendedResourceOrigin != nil {
+			extendedResource.ResourceVersion = extendedResourceOrigin.ResourceVersion
+			_, err := m.resourceClient.ResourceV1beta1().ExtendedResources().Update(extendedResource)
+			if err != nil {
+				log.Printf("Update ExtendedResource: %+v", err)
+				continue
+			}
+		}
+
+		if errors.IsNotFound(err) {
+			_, err := m.resourceClient.ResourceV1beta1().ExtendedResources().Create(extendedResource)
+			if err != nil {
+				log.Printf("Create ExtendedResource: %+v", err)
+				continue
+			}
+		}
+		if err != nil {
+			log.Printf("Get ExtendedResource: %+v", err)
+		}
+	}
+}
+
+func (m *NvidiaDevicePlugin) updateExtendedResource(deviceID string, phase v1beta1.ExtendedResourcePhase) {
+	computeResourceName := formatExtendedName(deviceID)
+	computeResourceOrigin, err := m.resourceClient.ResourceV1beta1().ExtendedResources().Get(computeResourceName, metav1.GetOptions{})
+	if errors.IsNotFound(err) || computeResourceOrigin == nil {
+		return
+	}
+	if err != nil {
+		log.Printf("Cannot get ExtendedResource: %+v", err)
+		return
+	}
+
+	computeResource := computeResourceOrigin.DeepCopy()
+
+	computeResource.Status.Phase = phase
+	_, err = m.resourceClient.ResourceV1beta1().ExtendedResources().Update(computeResource)
+	if err != nil {
+		log.Printf("Cannot update ExtendedResource: %+v", err)
+		return
+	}
+}
+
+func formatExtendedName(deviceID string) string {
+	return fmt.Sprintf("%s-%s", formatResourceName, strings.ToLower(deviceID))
+}
+
+func convertString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func convertUint64(i *uint64) string {
+	if i == nil {
+		return ""
+	}
+	return fmt.Sprintf("%dMiB", *i)
+}
+
+func convertCoreUint(i *uint) string {
+	if i == nil {
+		return ""
+	}
+	return fmt.Sprintf("%dMHz", *i)
+}
+
+func convertBandwidthUint(i *uint) string {
+	if i == nil {
+		return ""
+	}
+	return fmt.Sprintf("%dMB", *i)
 }

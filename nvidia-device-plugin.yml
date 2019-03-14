@@ -16,6 +16,7 @@ spec:
       labels:
         name: nvidia-device-plugin-ds
     spec:
+      serviceAccount: nvidia-device-plugin-sa
       tolerations:
       # Allow this pod to be rescheduled while the node is in "critical add-ons only" mode.
       # This, along with the annotation above marks this pod as a critical add-on.
@@ -25,8 +26,13 @@ spec:
         operator: Exists
         effect: NoSchedule
       containers:
-      - image: nvidia/k8s-device-plugin:1.11
+      - image: nvidia-device-plugin-cus:1.12
         name: nvidia-device-plugin-ctr
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
