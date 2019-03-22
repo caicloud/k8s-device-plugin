@@ -10,11 +10,11 @@ const (
 	ServingPlural = "servings"
 )
 
+// Serving defines a serving deployment.
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +resource:path=serving
-
-// Serving defines a serving deployment.
+// +kubebuilder:subresource:status
 type Serving struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -54,22 +54,42 @@ const (
 
 // ServingSpec defines the specification of serving deployment.
 type ServingSpec struct {
-	// PersistentVolumeClaim is shared by all Pods in the same Serving.
-	// The PVC must be ReadWriteMany in order to be used for multiple serving instances.
-	// The user only needs to specify the storage size of the PVC.
-	StorageSize string `json:"storageSize"`
 	// Resource requirements for serving instance.
-	Resource corev1.ResourceRequirements `json:"resource"`
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 	// Number of replicas for a serving instance. This is fixed to 1 for GPUSharing serving type.
 	Replicas int32 `json:"replicas"`
 	// Scaling is the configuration about how to scale the serving service.
-	Scaling ScalingConfig `json:"scalingConfig"`
+	// If the scalingConfig is defined, replicas will not work.
+	Scaling *ScalingConfig `json:"scalingConfig,omitempty"`
+	// UserInfo is the information about the user.
+	UserInfo *UserInformation `json:"userInfo,omitempty"`
+	// StorageConfig is the configuration about the storage.
+	Storage *StorageConfig `json:"storageConfig,omitempty"`
 	// Models is the list of models to be served via the serving deployment.
 	// In Scene, the size of the slices will be 1, while it can be larger than 1
 	// in Serving.
-	Models []ServingModel `json:"models"`
+	Models []ServingModel `json:"models,omitempty"`
 	// Type of the Serving
-	Type ServingType `json:"type"`
+	Type ServingType `json:"type,omitempty"`
+}
+
+// StorageConfig is the type for the configuration about storage.
+type StorageConfig struct {
+	// PersistentVolumeClaim is shared by all Pods in the same Serving.
+	// The PVC must be ReadWriteMany in order to be used for multiple serving instances.
+	// The user only needs to specify the storage size of the PVC.
+	Size string `json:"size,omitempty"`
+	// ClassName is the storageclass name.
+	ClassName string `json:"classname,omitempty"`
+}
+
+// UserInformation is the type to store the user-related information.
+// The information will be used to compose the PodSpec in the deployment.
+type UserInformation struct {
+	// Group defines the group that the user belongs to.
+	Group string `json:"group"`
+	// Username is the user's ID.
+	Username string `json:"username"`
 }
 
 // ScalingConfig defines the configuration about how to scale the serving service.
@@ -82,11 +102,11 @@ type ScalingConfig struct {
 
 // ResourceMetric specifies how to scale based on a single metric.
 type ResourceMetric struct {
-	Name corev1.ResourceName
+	Name corev1.ResourceName `json:"name,omitempty"`
 	// At least one fields below should be set.
-	Value              *resource.Quantity
-	AverageValue       *resource.Quantity
-	AverageUtilization *int32
+	Value              *resource.Quantity `json:"value,omitempty"`
+	AverageValue       *resource.Quantity `json:"averageValue,omitempty"`
+	AverageUtilization *int32             `json:"averageUtilization,omitempty"`
 }
 
 // CustomMetric defines customized resource.
@@ -99,12 +119,11 @@ type CustomMetric struct {
 // ServingStatus defines the status of serving deployment.
 type ServingStatus struct {
 	// InstanceStatus is the aggregated status of serving deployment.
-	InstanceStatus []ServingInstanceStatus `json:"instanceStatus"`
+	InstanceStatus []ServingInstanceStatus `json:"instanceStatus,omitempty"`
 	// VolumeName is the name of the Volume.
-	VolumeName string `json:"volumeName"`
-
+	VolumeName string `json:"volumeName,omitempty"`
 	// Conditions is an array of current observed job conditions.
-	Conditions []ServingCondition `json:"conditions"`
+	Conditions []ServingCondition `json:"conditions,omitempty"`
 	// Represents time when the job was acknowledged by the job controller.
 	// It is not guaranteed to be set in happens-before order across separate operations.
 	// It is represented in RFC3339 form and is in UTC.
@@ -204,10 +223,10 @@ const (
 	ScenePlural = "scenes"
 )
 
+// Scene defines a scene service
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-
-// Scene defines a scene service
+// +kubebuilder:subresource:status
 type Scene struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -227,18 +246,57 @@ type SceneList struct {
 }
 
 type SceneStatus struct {
-	// Heal information of the scene (namespace, service), aggregated via multiple instances
-	Health SceneHealth `json:"health"`
+	// Total number of servings.
+	// +optional
+	Servings int32 `json:"servings,omitempty"`
+
+	// Total number of ready servings.
+	// +optional
+	ReadyServings int32 `json:"readyServings,omitempty"`
+
+	// Total number of unavailable servings.
+	// +optional
+	UnavailableServings int32 `json:"unavailableServings,omitempty"`
+
+	// Conditions is an array of current observed job conditions.
+	Conditions []SceneCondition `json:"conditions,omitempty"`
+
+	// Represents time when the job was acknowledged by the job controller.
+	// It is not guaranteed to be set in happens-before order across separate operations.
+	// It is represented in RFC3339 form and is in UTC.
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// Represents time when the job was completed. It is not guaranteed to
+	// be set in happens-before order across separate operations.
+	// It is represented in RFC3339 form and is in UTC.
+	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+
+	// Represents last time when the job was reconciled. It is not guaranteed to
+	// be set in happens-before order across separate operations.
+	// It is represented in RFC3339 form and is in UTC.
+	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
 }
 
-// SceneHealth is the health status of a serving deployment.
-type SceneHealth string
+type SceneCondition struct {
+	// Type of job condition.
+	Type SceneConditionType `json:"type"`
+	// Status of the condition, one of True, False, Unknown.
+	Status corev1.ConditionStatus `json:"status"`
+	// The reason for the condition's last transition.
+	Reason string `json:"reason,omitempty"`
+	// A human readable message indicating details about the transition.
+	Message string `json:"message,omitempty"`
+	// The last time this condition was updated.
+	LastUpdateTime metav1.Time `json:"lastUpdateTime,omitempty"`
+	// Last time the condition transitioned from one status to another.
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
+}
+
+type SceneConditionType string
 
 const (
-	// The namespace and service is properly created, added model will be
-	// exposed immediately
-	SceneHealthy   SceneHealth = "Healthy"
-	SceneUnhealthy SceneHealth = "Unhealthy"
+	SceneRunning SceneConditionType = "Running"
+	SceneHealth  SceneConditionType = "SceneHealth"
 )
 
 // ServingTemplateSpec describes a template to create a serving deployment.
@@ -255,6 +313,8 @@ type SceneSpec struct {
 	Servings []ServingTemplateSpec `json:"servings"`
 	// A list of route configuration of the scene.
 	Http []*HTTPRoute `json:"http"`
+	// Name of default serving deployment.
+	DefaultServing string
 }
 
 type HTTPRoute struct {
@@ -262,8 +322,6 @@ type HTTPRoute struct {
 	Match []*HTTPMatchRequest `json:"match,omitempty"`
 	// A list of route information for matched requests.
 	Route []*HTTPRouteServing `json:"route,omitempty"`
-	// Name of default serving deployment.
-	DefaultServing string
 }
 
 // HTTPMatchRequest specify rules to match requests. All rules are ANDed.

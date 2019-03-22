@@ -8,7 +8,7 @@ import (
 const (
 	FlavorPlural   = "flavors"
 	ProjectPlural  = "projects"
-	MLNeuronPlural = "neurons"
+	MLNeuronPlural = "mlneurons"
 )
 
 // +genclient
@@ -33,23 +33,16 @@ type ProjectSpec struct {
 	// Steps represent the topology order in which MLNeuron are executed in Project.
 	Steps []Step `json:"steps"`
 
-	// ResourceQuota represent the resource quota of Project
-	ResourceQuota ResourceQuota `json:"resourceQuota"`
+	Storage StorageConfig `json:"storage"`
+
+	// Resources represent the resource quota of Project
+	ResourceConf ResourceConfig `json:"resourceConf"`
 }
 
-// ResourceQuota sets aggregate quota restrictions enforced per namespace
-type ResourceQuota struct {
-	// CPU, in cores. (500m = .5 cores).
-	CPU string `json:"cpu"`
-
-	// NVIDIA GPU, in devices.
-	GPU string `json:"gpu"`
-
-	// Memory, in bytes. (500Gi = 500GiB = 500 * 1024 * 1024 * 1024).
-	Memory string `json:"memory"`
-
-	// Storage size of PersistentVolumeClaim
-	Storage string `json:"storage"`
+type StorageConfig struct {
+	Name  string `json:"name"`
+	Class string `json:"class"`
+	Size  string `json:"size"`
 }
 
 // ProjectPhase is the state of Project.
@@ -163,7 +156,7 @@ type MLNeuronSpec struct {
 	// Replicas is used to convert to Neuron job replica, like PS, Worker in tfjob
 	// Only one replica when it is stand-alone training
 	// More than one replica when it is distributed training
-	Replicas []NeuronReplica `json:"replicas"`
+	Replicas []NeuronReplica `json:"replicas,omitempty"`
 
 	// Information for how to pull code
 	CodeRepositories []CodeRepository `json:"codeRepositories"`
@@ -187,7 +180,7 @@ type MLNeuronSpec struct {
 	Env []corev1.EnvVar `json:"env,omitempty"`
 
 	// May used when this MLNeuron runs
-	Command []string `json:"command"`
+	Command string `json:"command"`
 
 	// Tasks is the job task created by controller
 	Tasks []MLNeuronTask `json:"tasks,omitempty"`
@@ -200,21 +193,21 @@ type MLNeuronSpec struct {
 // Replication when Neuron runs
 type NeuronReplica struct {
 	// Used to specify type among MLNeuronConfig
-	Type MLNeuronReplicaType `json:"type"`
+	Type string `json:"type"`
 	// Quantity of replication
-	Count int32 `json:"count"`
-	// Which ResourceFlavor to use
-	Resource ResourceFlavor `json:"resource"`
+	Count        int32          `json:"count"`
+	ResourceConf ResourceConfig `json:"resourceConf"`
 }
 
 // Training framework like: horovod, stand-alone, PS, multi-worker.
 type TrainingType string
 
 const (
-	StandAloneTrainingType  TrainingType = "Stand-Alone"
-	MultiWorkerTrainingType TrainingType = "Multi-Worker"
-	PSWorkerTrainingType    TrainingType = "PS-Worker"
-	HorovodTrainingType     TrainingType = "Horovod"
+	StandAloneTraining   TrainingType = "Stand-Alone"
+	MultiWorkerTraining  TrainingType = "Multi-Worker"
+	PSWorkerTraining     TrainingType = "PS-Worker"
+	MasterWorkerTraining TrainingType = "Master-Worker"
+	HorovodTraining      TrainingType = "Horovod"
 )
 
 type MLNeuronConfig struct {
@@ -225,10 +218,19 @@ type MLNeuronConfig struct {
 	Framework FrameworkType `json:"framework"`
 
 	// xxxConf is the special fields required when converting to xxxJob struct
-	TensorFlowConf TensorFlowConfig `json:"tensorFlowConf"`
-	PyTorchConf    PyTorchConfig    `json:"pyTorchConf"`
-	SparkConf      SparkConfig      `json:"sparkConf"`
-	JupyterConf    JupyterConfig    `json:"jupyterConf"`
+	TensorFlowConf  *TensorFlowConfig  `json:"tensorFlowConf,omitempty"`
+	PyTorchConf     *PyTorchConfig     `json:"pyTorchConf,omitempty"`
+	SparkConf       *SparkConfig       `json:"sparkConf,omitempty"`
+	JupyterConf     *JupyterConfig     `json:"jupyterConf,omitempty"`
+	TensorBoardConf *TensorBoardConfig `json:"tensorBoardConf,omitempty"`
+}
+
+type TensorBoardConfig struct {
+	// ResourceConf represent the resource quota of TensorBoard
+	ResourceConf ResourceConfig `json:"resourceConf"`
+
+	// Image is the image config.
+	Image ImageFlavor `json:"image"`
 }
 
 type JupyterConfig struct {
@@ -250,8 +252,8 @@ type SparkApplicationType string
 
 // Different types of Spark applications.
 const (
-	JavaApplicationType  SparkApplicationType = "Java"
-	ScalaApplicationType SparkApplicationType = "Scala"
+	JavaApplication  SparkApplicationType = "Java"
+	ScalaApplication SparkApplicationType = "Scala"
 )
 
 // DeployMode describes the type of deployment of a Spark application.
@@ -409,32 +411,36 @@ type MLNeuronStatus struct {
 type MLNeuronTaskType string
 
 const (
-	// Pull code task will pull all code in CodeRepository
-	PullCodeTask MLNeuronTaskType = "PullCodeTask"
+	// Pull  task is used to pull input and output to MLNeuron pvc
+	PullTask MLNeuronTaskType = "Pull"
 
-	// Pull data task is used to pull input and output dataset to Neuron pvc
-	PullDataTask MLNeuronTaskType = "PullDataTask"
-
-	// Submit Job task is used to submit NeuronJob
-	SubmitJobTask MLNeuronTaskType = "SubmitJobTask"
+	// Submit  task is used to submit MLNeuronJob
+	SubmitTask MLNeuronTaskType = "Submit"
 
 	// Push data task is used to push output dataset to remote
-	PushDataTask MLNeuronTaskType = "PushDataTask"
+	PushTask MLNeuronTaskType = "Push"
 )
 
-type TaskStatus string
+type TaskStatusType string
 
 const (
-	TaskStatusCreated   TaskStatus = "created"
-	TaskStatusSubmitted TaskStatus = "submitted"
+	// Task status before submit
+	TaskStatusEmpty TaskStatusType = ""
+
+	// Task status after submit
+	TaskStatusCreated   TaskStatusType = "Created"
+	TaskStatusPending   TaskStatusType = "Pending"
+	TaskStatusRunning   TaskStatusType = "Running"
+	TaskStatusSucceeded TaskStatusType = "Succeeded"
+	TaskStatusFailed    TaskStatusType = "Failed"
 )
 
 type MLNeuronTask struct {
-	Type    MLNeuronTaskType `json:"type"`
-	TaskID  string           `json:"taskId"`
-	Dataset []DataSource     `json:"dataset,omitempty"`
-	Status  TaskStatus       `json:"status"`
-	User    string           `json:"user"`
+	Type     MLNeuronTaskType `json:"type"`
+	TaskID   string           `json:"taskId"`
+	Datasets []DataSource     `json:"datasets,omitempty"`
+	Status   TaskStatusType   `json:"status"`
+	User     string           `json:"user"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -470,7 +476,7 @@ type FlavorSpec struct {
 	Images []ImageFlavor `json:"images"`
 
 	// A list of resources recommended to the user for selection.
-	Resources []ResourceFlavor `json:"resources"`
+	ResourceList []ResourceConfig `json:"resourceList"`
 }
 
 // ImageFlavor is the image configuration.
@@ -492,9 +498,6 @@ type ImageFlavor struct {
 
 // Recommended resource configuration.
 type ResourceFlavor struct {
-	// Name of recommend resource configuration.
-	Name string `json:"name"`
-
 	// CPU, in cores. (500m = .5 cores).
 	CPU string `json:"cpu"`
 
@@ -503,6 +506,18 @@ type ResourceFlavor struct {
 
 	// Memory, in bytes. (500Gi = 500GiB = 500 * 1024 * 1024 * 1024).
 	Memory string `json:"memory"`
+}
+
+// Recommended resource configuration with limit
+type ResourceConfig struct {
+	// Name of recommend resource configuration.
+	Name string `json:"name"`
+
+	// Requests of resource quota
+	Requests ResourceFlavor `json:"requests"`
+
+	// Limits of resource quota
+	Limits ResourceFlavor `json:"limits"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

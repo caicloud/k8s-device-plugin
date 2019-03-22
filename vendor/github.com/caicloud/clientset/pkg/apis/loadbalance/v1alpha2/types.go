@@ -281,6 +281,8 @@ type AzureProviderStatus struct {
 	Message string `json:"message,omitempty"`
 	// ProvisioningState azure lb state
 	ProvisioningState string `json:"provisioningState,omitempty"`
+	// PublicIPAddress - The reference of the Public IP address.
+	PublicIPAddress *string `json:"publicIPAddress,omitempty"`
 }
 
 // AzureProviderPhase azure loadbalancer phase

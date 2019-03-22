@@ -55,81 +55,8 @@ type DataType string
 
 const (
 	// Model set type
-	Model   DataType = "model"
-	Dataset DataType = "dataset"
-)
-
-// ReplicaType represents the type of the replica. Each operator needs to define its
-// own set of ReplicaTypes.
-type MLNeuronReplicaType string
-
-type SparkReplicaType MLNeuronReplicaType
-
-const (
-	// SparkReplicaTypeDriver is the type of Driver in Spark
-	SparkReplicaTypeDriver SparkReplicaType = "Driver"
-
-	// SparkReplicaTypeExecutor is the type for Executor in Spark.
-	SparkReplicaTypeExecutor SparkReplicaType = "Executor"
-)
-
-// TFReplicaType is the type for TFReplica.
-type TFReplicaType MLNeuronReplicaType
-
-const (
-	// TFReplicaTypePS is the type for parameter servers of distributed TensorFlow.
-	TFReplicaTypePS TFReplicaType = "PS"
-
-	// TFReplicaTypeWorker is the type for workers of distributed TensorFlow.
-	// This is also used for non-distributed TensorFlow.
-	TFReplicaTypeWorker TFReplicaType = "Worker"
-
-	// TFReplicaTypeChief is the type for chief worker of distributed TensorFlow.
-	// If there is "chief" replica type, it's the "chief worker".
-	// Else, worker:0 is the chief worker.
-	TFReplicaTypeChief TFReplicaType = "Chief"
-
-	// TFReplicaTypeMaster is the type for master worker of distributed TensorFlow.
-	// This is similar to chief, and kept just for backwards compatibility.
-	TFReplicaTypeMaster TFReplicaType = "Master"
-
-	// TFReplicaTypeEval is the type for evaluation replica in TensorFlow.
-	TFReplicaTypeEval TFReplicaType = "Evaluator"
-)
-
-// PyTorchReplicaType is the type for PyTorchReplica.
-type PyTorchReplicaType MLNeuronReplicaType
-
-const (
-	// PyTorchReplicaTypeMaster is the type of Master of distributed PyTorch
-	PyTorchReplicaTypeMaster PyTorchReplicaType = "Master"
-
-	// PyTorchReplicaTypeWorker is the type for workers of distributed PyTorch.
-	PyTorchReplicaTypeWorker PyTorchReplicaType = "Worker"
-)
-
-// MXReplicaType is the type for MXReplica.
-type MXReplicaType MLNeuronReplicaType
-
-const (
-	// MXReplicaTypeScheduler is the type for scheduler replica in MXNet.
-	MXReplicaTypeScheduler MXReplicaType = "Scheduler"
-
-	// MXReplicaTypeServer is the type for parameter servers of distributed MXNet.
-	MXReplicaTypeServer MXReplicaType = "Server"
-
-	// MXReplicaTypeWorker is the type for workers of distributed MXNet.
-	// This is also used for non-distributed MXNet.
-	MXReplicaTypeWorker MXReplicaType = "Worker"
-
-	// MXReplicaTypeTunerTracker
-	// This the auto-tuning tracker e.g. autotvm tracker, it will dispatch tuning task to TunerServer
-	MXReplicaTypeTunerTracker MXReplicaType = "TunerTracker"
-
-	// MXReplicaTypeTunerServer
-	MXReplicaTypeTunerServer MXReplicaType = "TunerServer"
-
-	// MXReplicaTuner is the type for auto-tuning of distributed MXNet.
-	// This is also used for non-distributed MXNet.
-	MXReplicaTypeTuner MXReplicaType = "Tuner"
+	Model            DataType = "Model"
+	Code             DataType = "Code"
+	VersionedData    DataType = "VersionedData"
+	NonVersionedData DataType = "NonVersionedData"
 )

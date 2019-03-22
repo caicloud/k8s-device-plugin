@@ -16,6 +16,7 @@ import (
 	datasetv1alpha1 "github.com/caicloud/clientset/kubernetes/typed/dataset/v1alpha1"
 	datasetv1alpha2 "github.com/caicloud/clientset/kubernetes/typed/dataset/v1alpha2"
 	devopsv1 "github.com/caicloud/clientset/kubernetes/typed/devops/v1"
+	evaluationv1alpha1 "github.com/caicloud/clientset/kubernetes/typed/evaluation/v1alpha1"
 	loadbalancev1alpha2 "github.com/caicloud/clientset/kubernetes/typed/loadbalance/v1alpha2"
 	loggingv1alpha1 "github.com/caicloud/clientset/kubernetes/typed/logging/v1alpha1"
 	microservicev1alpha1 "github.com/caicloud/clientset/kubernetes/typed/microservice/v1alpha1"
@@ -56,6 +57,9 @@ type Interface interface {
 	DevopsV1() devopsv1.DevopsV1Interface
 	// Deprecated: please explicitly pick a version if possible.
 	Devops() devopsv1.DevopsV1Interface
+	EvaluationV1alpha1() evaluationv1alpha1.EvaluationV1alpha1Interface
+	// Deprecated: please explicitly pick a version if possible.
+	Evaluation() evaluationv1alpha1.EvaluationV1alpha1Interface
 	LoadbalanceV1alpha2() loadbalancev1alpha2.LoadbalanceV1alpha2Interface
 	// Deprecated: please explicitly pick a version if possible.
 	Loadbalance() loadbalancev1alpha2.LoadbalanceV1alpha2Interface
@@ -99,6 +103,7 @@ type Clientset struct {
 	datasetV1alpha1       *datasetv1alpha1.DatasetV1alpha1Client
 	datasetV1alpha2       *datasetv1alpha2.DatasetV1alpha2Client
 	devopsV1              *devopsv1.DevopsV1Client
+	evaluationV1alpha1    *evaluationv1alpha1.EvaluationV1alpha1Client
 	loadbalanceV1alpha2   *loadbalancev1alpha2.LoadbalanceV1alpha2Client
 	loggingV1alpha1       *loggingv1alpha1.LoggingV1alpha1Client
 	microserviceV1alpha1  *microservicev1alpha1.MicroserviceV1alpha1Client
@@ -196,6 +201,17 @@ func (c *Clientset) DevopsV1() devopsv1.DevopsV1Interface {
 // Please explicitly pick a version.
 func (c *Clientset) Devops() devopsv1.DevopsV1Interface {
 	return c.devopsV1
+}
+
+// EvaluationV1alpha1 retrieves the EvaluationV1alpha1Client
+func (c *Clientset) EvaluationV1alpha1() evaluationv1alpha1.EvaluationV1alpha1Interface {
+	return c.evaluationV1alpha1
+}
+
+// Deprecated: Evaluation retrieves the default version of EvaluationClient.
+// Please explicitly pick a version.
+func (c *Clientset) Evaluation() evaluationv1alpha1.EvaluationV1alpha1Interface {
+	return c.evaluationV1alpha1
 }
 
 // LoadbalanceV1alpha2 retrieves the LoadbalanceV1alpha2Client
@@ -346,6 +362,10 @@ func NewForConfig(c *rest.Config) (*Clientset, error) {
 	if err != nil {
 		return nil, err
 	}
+	cs.evaluationV1alpha1, err = evaluationv1alpha1.NewForConfig(&configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
 	cs.loadbalanceV1alpha2, err = loadbalancev1alpha2.NewForConfig(&configShallowCopy)
 	if err != nil {
 		return nil, err
@@ -407,6 +427,7 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 	cs.datasetV1alpha1 = datasetv1alpha1.NewForConfigOrDie(c)
 	cs.datasetV1alpha2 = datasetv1alpha2.NewForConfigOrDie(c)
 	cs.devopsV1 = devopsv1.NewForConfigOrDie(c)
+	cs.evaluationV1alpha1 = evaluationv1alpha1.NewForConfigOrDie(c)
 	cs.loadbalanceV1alpha2 = loadbalancev1alpha2.NewForConfigOrDie(c)
 	cs.loggingV1alpha1 = loggingv1alpha1.NewForConfigOrDie(c)
 	cs.microserviceV1alpha1 = microservicev1alpha1.NewForConfigOrDie(c)
@@ -434,6 +455,7 @@ func New(c rest.Interface) *Clientset {
 	cs.datasetV1alpha1 = datasetv1alpha1.New(c)
 	cs.datasetV1alpha2 = datasetv1alpha2.New(c)
 	cs.devopsV1 = devopsv1.New(c)
+	cs.evaluationV1alpha1 = evaluationv1alpha1.New(c)
 	cs.loadbalanceV1alpha2 = loadbalancev1alpha2.New(c)
 	cs.loggingV1alpha1 = loggingv1alpha1.New(c)
 	cs.microserviceV1alpha1 = microservicev1alpha1.New(c)

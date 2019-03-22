@@ -10,11 +10,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// GroupName is the group name use in this package
-const GroupName = "serving.caicloud.io"
+const (
+	Kind         = "EvalJob"
+	GroupVersion = "v1alpha1"
+	GroupName    = "evaluation.caicloud.io"
+)
 
 // SchemeGroupVersion is group version used to register these objects
-var SchemeGroupVersion = schema.GroupVersion{Group: GroupName, Version: "v1alpha1"}
+var (
+	SchemeGroupVersion     = schema.GroupVersion{Group: GroupName, Version: GroupVersion}
+	SchemeGroupVersionKind = schema.GroupVersionKind{Group: GroupName, Version: GroupVersion, Kind: Kind}
+)
 
 // Resource takes an unqualified resource and returns a Group qualified GroupResource
 func Resource(resource string) schema.GroupResource {
@@ -26,15 +32,12 @@ var (
 	AddToScheme   = SchemeBuilder.AddToScheme
 )
 
-// Adds the list of known types to api.Scheme.
+// Adds the list of known types to Scheme.
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
-		&Serving{},
-		&ServingList{},
-		&Scene{},
-		&SceneList{},
+		&EvalJob{},
+		&EvalJobList{},
 	)
-	// Add the watch version that applies
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil
 }
