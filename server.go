@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	"github.com/NVIDIA/k8s-device-plugin/nvml"
 	clientset "github.com/caicloud/clientset/kubernetes"
 	"github.com/caicloud/clientset/pkg/apis/resource/v1beta1"
 	"golang.org/x/net/context"
@@ -31,8 +31,9 @@ const (
 
 // NvidiaDevicePlugin implements the Kubernetes device plugin API
 type NvidiaDevicePlugin struct {
-	devs   []*pluginapi.Device
-	socket string
+	devs     []*pluginapi.Device
+	nvmlDevs []*nvml.Device
+	socket   string
 
 	stop   chan interface{}
 	health chan *pluginapi.Device
@@ -44,21 +45,17 @@ type NvidiaDevicePlugin struct {
 
 // NewNvidiaDevicePlugin returns an initialized NvidiaDevicePlugin
 func NewNvidiaDevicePlugin(resourceClient *clientset.Clientset) *NvidiaDevicePlugin {
-	nodeName := os.Getenv("NODE_NAME")
 	devs, nvmlDevs := getDevices()
-
 	nvidiaDevicePlugin := &NvidiaDevicePlugin{
-		devs:   devs,
-		socket: serverSock,
+		devs:     devs,
+		nvmlDevs: nvmlDevs,
+		socket:   serverSock,
 
 		stop:   make(chan interface{}),
 		health: make(chan *pluginapi.Device),
 
 		resourceClient: resourceClient,
 	}
-
-	nvidiaDevicePlugin.generateExtendedResources(nvmlDevs, nodeName)
-
 	return nvidiaDevicePlugin
 }
 
@@ -157,7 +154,7 @@ func (m *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.Device
 		case d := <-m.health:
 			// FIXME: there is no way to recover from the Unhealthy state.
 			d.Health = pluginapi.Unhealthy
-			m.updateExtendedResource(d.ID, v1beta1.ExtendedResourcePending)
+			m.updateExtendedResource(d, v1beta1.ExtendedResourcePending)
 			s.Send(&pluginapi.ListAndWatchResponse{Devices: m.devs})
 		}
 	}
@@ -246,22 +243,27 @@ func (m *NvidiaDevicePlugin) Serve() error {
 	return nil
 }
 
-func (m *NvidiaDevicePlugin) generateExtendedResources(devs []*nvml.Device, nodeName string) {
+func (m *NvidiaDevicePlugin) GenerateExtendedResources() {
+	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
 		log.Fatalf("nodeName cannot be empty.")
 	}
 
-	for _, dev := range devs {
+	for _, dev := range m.nvmlDevs {
 		extendedResourceName := formatExtendedName(dev.UUID)
+		cores := appendString(convertUint(dev.Clocks.Cores), "MHz")
+		bandwidth := appendString(convertUint(dev.PCI.Bandwidth), "MB")
+		memory := appendString(convertUint64(dev.Memory), "MiB")
+
 		extendedResource := &v1beta1.ExtendedResource{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: extendedResourceName,
 				Labels: map[string]string{
 					"hostname":  nodeName,
 					"model":     strings.Replace(convertString(dev.Model), " ", "-", -1),
-					"cores":     convertCoreUint(dev.Clocks.Cores),
-					"memory":    convertUint64(dev.Memory),
-					"bandwidth": convertBandwidthUint(dev.PCI.Bandwidth),
+					"cores":     cores,
+					"memory":    memory,
+					"bandwidth": bandwidth,
 				},
 			},
 			Spec: v1beta1.ExtendedResourceSpec{
@@ -269,10 +271,17 @@ func (m *NvidiaDevicePlugin) generateExtendedResources(devs []*nvml.Device, node
 				DeviceID:        dev.UUID,
 				NodeName:        nodeName,
 				Properties: map[string]string{
-					"Model":     convertString(dev.Model),
-					"Cores":     convertCoreUint(dev.Clocks.Cores),
-					"Memory":    convertUint64(dev.Memory),
-					"Bandwidth": convertBandwidthUint(dev.PCI.Bandwidth),
+					"Model":                 convertString(dev.Model),
+					"Cores":                 cores,
+					"Memory":                memory,
+					"Bandwidth":             bandwidth,
+					"MaxPcieLinkWidth":      convertUint(dev.PCI.MaxPcieLinkWidth),
+					"MaxPcieLinkGeneration": convertUint(dev.PCI.MaxPcieLinkGeneration),
+					"Brand":                 dev.Brand,
+					"Name":                  dev.Name,
+					"MaxGraphicsClock":      appendString(convertUint(dev.Clocks.Graphics), "MHz"),
+					"MaxMemClock":           appendString(convertUint(dev.Clocks.Memory), "MHz"),
+					"MaxVideoClock":         appendString(convertUint(dev.Clocks.Video), "MHz"),
 				},
 			},
 			Status: v1beta1.ExtendedResourceStatus{
@@ -303,10 +312,10 @@ func (m *NvidiaDevicePlugin) generateExtendedResources(devs []*nvml.Device, node
 	}
 }
 
-func (m *NvidiaDevicePlugin) updateExtendedResource(deviceID string, phase v1beta1.ExtendedResourcePhase) {
-	computeResourceName := formatExtendedName(deviceID)
-	computeResourceOrigin, err := m.resourceClient.ResourceV1beta1().ExtendedResources().Get(computeResourceName, metav1.GetOptions{})
-	if errors.IsNotFound(err) || computeResourceOrigin == nil {
+func (m *NvidiaDevicePlugin) updateExtendedResource(d *pluginapi.Device, phase v1beta1.ExtendedResourcePhase) {
+	extendedResourceName := formatExtendedName(d.ID)
+	extendedResourceOrigin, err := m.resourceClient.ResourceV1beta1().ExtendedResources().Get(extendedResourceName, metav1.GetOptions{})
+	if errors.IsNotFound(err) || extendedResourceOrigin == nil {
 		return
 	}
 	if err != nil {
@@ -314,10 +323,10 @@ func (m *NvidiaDevicePlugin) updateExtendedResource(deviceID string, phase v1bet
 		return
 	}
 
-	computeResource := computeResourceOrigin.DeepCopy()
+	extendedResource := extendedResourceOrigin.DeepCopy()
 
-	computeResource.Status.Phase = phase
-	_, err = m.resourceClient.ResourceV1beta1().ExtendedResources().Update(computeResource)
+	extendedResource.Status.Phase = phase
+	_, err = m.resourceClient.ResourceV1beta1().ExtendedResources().Update(extendedResource)
 	if err != nil {
 		log.Printf("Cannot update ExtendedResource: %+v", err)
 		return
@@ -335,23 +344,20 @@ func convertString(s *string) string {
 	return *s
 }
 
+func appendString(s string, suffix string) string {
+	return fmt.Sprintf("%s%s", s, suffix)
+}
+
+func convertUint(i *uint) string {
+	if i == nil {
+		return "0"
+	}
+	return fmt.Sprintf("%d", *i)
+}
+
 func convertUint64(i *uint64) string {
 	if i == nil {
-		return ""
+		return "0"
 	}
-	return fmt.Sprintf("%dMiB", *i)
-}
-
-func convertCoreUint(i *uint) string {
-	if i == nil {
-		return ""
-	}
-	return fmt.Sprintf("%dMHz", *i)
-}
-
-func convertBandwidthUint(i *uint) string {
-	if i == nil {
-		return ""
-	}
-	return fmt.Sprintf("%dMB", *i)
+	return fmt.Sprintf("%d", *i)
 }

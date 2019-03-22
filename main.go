@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	"github.com/NVIDIA/k8s-device-plugin/nvml"
 	clientset "github.com/caicloud/clientset/kubernetes"
 	"github.com/fsnotify/fsnotify"
 	"k8s.io/client-go/rest"
@@ -30,6 +30,7 @@ func init() {
 
 func main() {
 	flag.Parse()
+
 	log.Println("Loading NVML")
 	if err := nvml.Init(); err != nil {
 		log.Printf("Failed to initialize NVML: %s.", err)
@@ -77,6 +78,8 @@ L:
 			} else {
 				restart = false
 			}
+
+			devicePlugin.GenerateExtendedResources()
 		}
 
 		select {
