@@ -6,8 +6,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
-
+	"github.com/NVIDIA/k8s-device-plugin/nvml"
 	"golang.org/x/net/context"
 	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
 )
@@ -18,21 +17,23 @@ func check(err error) {
 	}
 }
 
-func getDevices() []*pluginapi.Device {
+func getDevices() ([]*pluginapi.Device, []*nvml.Device) {
 	n, err := nvml.GetDeviceCount()
 	check(err)
 
 	var devs []*pluginapi.Device
+	var nvmlDevs []*nvml.Device
 	for i := uint(0); i < n; i++ {
-		d, err := nvml.NewDeviceLite(i)
+		d, err := nvml.NewDevice(i)
 		check(err)
 		devs = append(devs, &pluginapi.Device{
 			ID:     d.UUID,
 			Health: pluginapi.Healthy,
 		})
+		nvmlDevs = append(nvmlDevs, d)
 	}
 
-	return devs
+	return devs, nvmlDevs
 }
 
 func deviceExists(devs []*pluginapi.Device, id string) bool {
