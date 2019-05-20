@@ -17,6 +17,7 @@ type CleverV1alpha2Interface interface {
 	RESTClient() rest.Interface
 	FlavorsGetter
 	MLNeuronsGetter
+	MLNeuronTaskOwnersGetter
 	ProjectsGetter
 }
 
@@ -31,6 +32,10 @@ func (c *CleverV1alpha2Client) Flavors() FlavorInterface {
 
 func (c *CleverV1alpha2Client) MLNeurons(namespace string) MLNeuronInterface {
 	return newMLNeurons(c, namespace)
+}
+
+func (c *CleverV1alpha2Client) MLNeuronTaskOwners(namespace string) MLNeuronTaskOwnerInterface {
+	return newMLNeuronTaskOwners(c, namespace)
 }
 
 func (c *CleverV1alpha2Client) Projects(namespace string) ProjectInterface {

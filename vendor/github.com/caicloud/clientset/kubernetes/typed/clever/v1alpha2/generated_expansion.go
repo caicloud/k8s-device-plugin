@@ -10,4 +10,6 @@ type FlavorExpansion interface{}
 
 type MLNeuronExpansion interface{}
 
+type MLNeuronTaskOwnerExpansion interface{}
+
 type ProjectExpansion interface{}

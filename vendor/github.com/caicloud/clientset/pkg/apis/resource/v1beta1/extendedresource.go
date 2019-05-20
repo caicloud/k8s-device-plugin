@@ -1,6 +1,7 @@
 package v1beta1
 
 import (
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -46,6 +47,14 @@ type ExtendedResourceStatus struct {
 	// Brief string that describes any failure, used for CLI etc
 	// +optional
 	Reason string `json:"reason,omitempty" protobuf:"bytes,3,opt,name=reason"`
+
+	// Capacity represents the total resources of a ExtendedResource.
+	// +optional
+	Capacity v1.ResourceList `json:"capacity,omitempty" protobuf:"bytes,4,rep,name=capacity,casttype=ResourceList,castkey=ResourceName"`
+	// Allocatable represents the ExtendedResource that are available for scheduling.
+	// Defaults to Capacity.
+	// +optional
+	Allocatable v1.ResourceList `json:"allocatable,omitempty" protobuf:"bytes,5,rep,name=allocatable,casttype=ResourceList,castkey=ResourceName"`
 }
 
 // ExtendedResourcePhase defines ExtendedResource status.

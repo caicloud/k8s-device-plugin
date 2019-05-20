@@ -77,19 +77,25 @@ type ServingSpec struct {
 type StorageConfig struct {
 	// PersistentVolumeClaim is shared by all Pods in the same Serving.
 	// The PVC must be ReadWriteMany in order to be used for multiple serving instances.
-	// The user only needs to specify the storage size of the PVC.
+	// Size is the size for the storage.
 	Size string `json:"size,omitempty"`
 	// ClassName is the storageclass name.
-	ClassName string `json:"classname,omitempty"`
+	ClassName string `json:"className,omitempty"`
+	// PersistentVolumeClaimName is name of storage.
+	// When the field is empty, evaluation controller will create one; otherwise, given storage
+	// will be used, and all other fields are ignored.
+	PersistentVolumeClaimName *string `json:"persistentVolumeClaimName,omitempty"`
 }
 
 // UserInformation is the type to store the user-related information.
 // The information will be used to compose the PodSpec in the deployment.
 type UserInformation struct {
 	// Group defines the group that the user belongs to.
-	Group string `json:"group"`
+	Group string `json:"group,omitempty"`
 	// Username is the user's ID.
-	Username string `json:"username"`
+	Username string `json:"username,omitempty"`
+	// Tenant is the tenant in Clever.
+	Tenant string `json:"tenant"`
 }
 
 // ScalingConfig defines the configuration about how to scale the serving service.
@@ -104,7 +110,8 @@ type ScalingConfig struct {
 type ResourceMetric struct {
 	Name corev1.ResourceName `json:"name,omitempty"`
 	// At least one fields below should be set.
-	Value              *resource.Quantity `json:"value,omitempty"`
+	// Value is not supported in v2beta1, thus we do not support value now.
+	// Value              *resource.Quantity `json:"value,omitempty"`
 	AverageValue       *resource.Quantity `json:"averageValue,omitempty"`
 	AverageUtilization *int32             `json:"averageUtilization,omitempty"`
 }
@@ -118,8 +125,32 @@ type CustomMetric struct {
 
 // ServingStatus defines the status of serving deployment.
 type ServingStatus struct {
-	// InstanceStatus is the aggregated status of serving deployment.
-	InstanceStatus []ServingInstanceStatus `json:"instanceStatus,omitempty"`
+	// Total number of non-terminated pods targeted by this serving (their labels match the selector).
+	// +optional
+	Replicas int32 `json:"replicas,omitempty"`
+
+	// Total number of non-terminated pods targeted by this serving that have the desired template spec.
+	// +optional
+	UpdatedReplicas int32 `json:"updatedReplicas,omitempty"`
+
+	// Total number of ready pods targeted by this serving.
+	// +optional
+	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
+
+	// Total number of available pods (ready for at least minReadySeconds) targeted by this serving.
+	// +optional
+	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
+
+	// Total number of unavailable pods targeted by this serving. This is the total number of
+	// pods that are still required for the serving to have 100% available capacity. They may
+	// either be pods that are running but not yet available or pods that still have not been created.
+	// +optional
+	UnavailableReplicas int32 `json:"unavailableReplicas,omitempty"`
+
+	// ModelStatuses store the model statuses of one serving, which key is
+	// model-version<-alias>, the alias is only for GPUsharing.
+	ModelStatuses map[string]*ModelStatus `json:"modelStatuses,omitempty"`
+
 	// VolumeName is the name of the Volume.
 	VolumeName string `json:"volumeName,omitempty"`
 	// Conditions is an array of current observed job conditions.
@@ -129,15 +160,25 @@ type ServingStatus struct {
 	// It is represented in RFC3339 form and is in UTC.
 	StartTime *metav1.Time `json:"startTime,omitempty"`
 
-	// Represents time when the job was completed. It is not guaranteed to
-	// be set in happens-before order across separate operations.
-	// It is represented in RFC3339 form and is in UTC.
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+	// The generation observed by the deployment controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Represents last time when the spec is updated. The field is only updated by clever-admin.
+	LastModifiedTime *metav1.Time `json:"lastModifiedTime,omitempty"`
 
 	// Represents last time when the job was reconciled. It is not guaranteed to
 	// be set in happens-before order across separate operations.
 	// It is represented in RFC3339 form and is in UTC.
 	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
+}
+
+// ModelStatus stores the model status in one serving.
+// In GPUSharing, replicas will be 1, in other servings types, replicas >= 1.
+type ModelStatus struct {
+	Replicas            int32 `json:"replicas,omitempty"`
+	AvailableReplicas   int32 `json:"availableReplicas,omitempty"`
+	UnavailableReplicas int32 `json:"unavailableReplicas,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
@@ -162,17 +203,23 @@ type ServingCondition struct {
 type ServingConditionType string
 
 const (
-	ServingRunning ServingConditionType = "Running"
-	ServingHealth  ServingConditionType = "ModelHealth"
+	// ServingHPAScalingActive indicates that the HPA controller is able to scale if necessary:
+	// it's correctly configured, can fetch the desired metrics, and isn't disabled.
+	ServingHPAScalingActive ServingConditionType = "HorizontalPodAutoscalerScalingActive"
+	// ServingHPAAbleToScale indicates a lack of transient issues which prevent scaling from occurring,
+	// such as being in a backoff window, or being unable to access/update the target scale.
+	ServingHPAAbleToScale ServingConditionType = "HorizontalPodAutoscalerAbleToScale"
+	// ServingHPAScalingLimited indicates that the calculated scale based on metrics would be above or
+	// below the range for the HPA, and has thus been capped.
+	ServingHPAScalingLimited        ServingConditionType = "HorizontalPodAutoscalerScalingLimited"
+	ServingDeploymentAvailable      ServingConditionType = "DeploymentAvailable"
+	ServingDeploymentProgressing    ServingConditionType = "DeploymentProgressing"
+	ServingDeploymentReplicaFailure ServingConditionType = "DeploymentReplicaFailure"
+	ServingHealth                   ServingConditionType = "ModelHealth"
+	ServingPVCResizing              ServingConditionType = "PersistentVolumeClaimResizing"
+	ServingPVCPending               ServingConditionType = "PersistentVolumeClaimPending"
+	ServingPVCBound                 ServingConditionType = "PersistentVolumeClaimBound"
 )
-
-// ServingInstanceStatus defines status for a single serving instance.
-type ServingInstanceStatus struct {
-	// Phase of the serving instance. This is simply the phase of the corresponding pod.
-	Phase corev1.PodPhase `json:"phase"`
-	// Statuses of the models running in the serving instance. Model here means 'model + version'.
-	ModelStatuses []ModelStatus `json:"modelStatuses"`
-}
 
 // +k8s:deepcopy-gen=true
 
@@ -198,24 +245,6 @@ type TensorRTModelConfig struct {
 	// URLAlias is not used in Scene Serving but TensorRT Inference Serve
 	URLAlias string `json:"urlAlias,omitempty"`
 }
-
-// ModelStatus is the status of a model.
-type ModelStatus struct {
-	// Name and version of corresponding model.
-	Name    string
-	Version string
-
-	// Health information of the model.
-	Health ServingModelHealth
-}
-
-// ServingModelHealth is the health condition of a model (under a specific serving instance).
-type ServingModelHealth string
-
-const (
-	ServingModelHealthy   ServingModelHealth = "Healthy"
-	ServingModelUnhealthy ServingModelHealth = "Unhealthy"
-)
 
 // -----------------------------------------------------------------
 
@@ -252,7 +281,7 @@ type SceneStatus struct {
 
 	// Total number of ready servings.
 	// +optional
-	ReadyServings int32 `json:"readyServings,omitempty"`
+	AvailableServings int32 `json:"availableServings,omitempty"`
 
 	// Total number of unavailable servings.
 	// +optional
@@ -261,15 +290,20 @@ type SceneStatus struct {
 	// Conditions is an array of current observed job conditions.
 	Conditions []SceneCondition `json:"conditions,omitempty"`
 
+	// VolumeName is the name of the Volume.
+	VolumeName string `json:"volumeName,omitempty"`
+
 	// Represents time when the job was acknowledged by the job controller.
 	// It is not guaranteed to be set in happens-before order across separate operations.
 	// It is represented in RFC3339 form and is in UTC.
 	StartTime *metav1.Time `json:"startTime,omitempty"`
 
-	// Represents time when the job was completed. It is not guaranteed to
-	// be set in happens-before order across separate operations.
-	// It is represented in RFC3339 form and is in UTC.
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+	// The generation observed by the deployment controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Represents last time when the spec is updated. The field is only updated by clever-admin.
+	LastModifiedTime *metav1.Time `json:"lastModifiedTime,omitempty"`
 
 	// Represents last time when the job was reconciled. It is not guaranteed to
 	// be set in happens-before order across separate operations.
@@ -297,6 +331,10 @@ type SceneConditionType string
 const (
 	SceneRunning SceneConditionType = "Running"
 	SceneHealth  SceneConditionType = "SceneHealth"
+
+	ScenePVCResizing SceneConditionType = "PersistentVolumeClaimResizing"
+	ScenePVCPending  SceneConditionType = "PersistentVolumeClaimPending"
+	ScenePVCBound    SceneConditionType = "PersistentVolumeClaimBound"
 )
 
 // ServingTemplateSpec describes a template to create a serving deployment.
@@ -306,41 +344,60 @@ type ServingTemplateSpec struct {
 }
 
 type SceneSpec struct {
-	// Resource quota for a scene. Each scene occupies a namespace, thus
-	// this is the quota of a namespace.
-	Quota corev1.ResourceList `json:"quota"`
+	// UserInfo is the information about the user.
+	// If UserInfo is defined here, it will override the corresponding fields in servings.
+	UserInfo *UserInformation `json:"userInfo,omitempty"`
 	// A list of serving deployments under a scene.
 	Servings []ServingTemplateSpec `json:"servings"`
 	// A list of route configuration of the scene.
-	Http []*HTTPRoute `json:"http"`
+	// To match Istio-Admin struct definition:
+	// https://github.com/caicloud/platform/blob/master/docs/api/istio-admin.md#trafficrule
+	Http []*HTTPRoute `json:"httpRoute"`
 	// Name of default serving deployment.
-	DefaultServing string
+	DefaultServing string `json:"defaultServing,omitempty"`
 }
 
 type HTTPRoute struct {
 	// A list of rules to match requests. All matches are ORed.
 	Match []*HTTPMatchRequest `json:"match,omitempty"`
 	// A list of route information for matched requests.
-	Route []*HTTPRouteServing `json:"route,omitempty"`
+	Route []*HTTPRouteServing `json:"route"`
+	// Path sending to Pod in Scene
+	Rewrite *HTTPRewrite `json:"rewrite,omitempty"`
+}
+
+type HTTPRewrite struct {
+	// In Clever 1.4.0, the rewrite path is "/predict"
+	Uri string `json:"uri,omitempty"`
 }
 
 // HTTPMatchRequest specify rules to match requests. All rules are ANDed.
 type HTTPMatchRequest struct {
 	// Match headers of a request.
-	Headers map[string]*StringMatch
+	Headers map[string]*StringMatch `json:"headers"`
+	// Path that external users use
+	Uri *StringMatch `json:"uri,omitempty"`
 }
 
 type HTTPRouteServing struct {
 	// Name of serving defined in []SceneSpec.Servings.
-	Serving string
+	// Compatible with https://github.com/caicloud/platform/blob/master/docs/api/istio-admin.md#httproute
+	Destination Destination `json:"destination"`
 	// Traffic weight of the serving.
-	Weight int32
+	Weight int32 `json:"weight,omitempty"`
+}
+
+// Destination describes the name of the Serving where traffic lands
+type Destination struct {
+	Subset string `json:"subset"`
 }
 
 // StringMatch defines 3 different types of matching strategy, i.e. only match prefix,
 // exact string match, and regular expression match.
 type StringMatch struct {
-	prefix string
-	exact  string
-	regex  string
+	Prefix  string `json:"prefix,omitempty"`
+	Exact   string `json:"exact,omitempty"`
+	Regex   string `json:"regex,omitempty"`
+	Include string `json:"include,omitempty"`
+	Exclude string `json:"exclude,omitempty"`
 }

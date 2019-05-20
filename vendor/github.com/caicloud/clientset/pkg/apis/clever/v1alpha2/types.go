@@ -36,13 +36,46 @@ type ProjectSpec struct {
 	Storage StorageConfig `json:"storage"`
 
 	// Resources represent the resource quota of Project
-	ResourceConf ResourceConfig `json:"resourceConf"`
+	Resources ResourceConfig `json:"resources"`
+
+	// Preset repository of the platform.
+	Repository *RepositoryConfig `json:"repository,omitempty"`
+}
+
+// The type of repository
+type RepositoryType string
+
+const (
+	// CustomRepositoryType represents a user-defined repository.
+	CustomRepositoryType RepositoryType = "custom"
+
+	// PresetRepositoryType represents a preset repository of the platform.
+	PresetRepositoryType RepositoryType = "preset"
+
+	// PresetPublicRepositoryType represents a public preset repository of the platform.
+	PresetPublicRepositoryType RepositoryType = "preset-public"
+)
+
+type RepositoryConfig struct {
+	ID       string         `json:"id"`
+	URL      string         `json:"url"`
+	Name     string         `json:"name"`
+	Username string         `json:"username"`
+	Password string         `json:"password"`
+	Tag      string         `json:"tag"`
+	Type     RepositoryType `json:"type"`
+	Alias    string         `json:"alias"`
 }
 
 type StorageConfig struct {
-	Name  string `json:"name"`
-	Class string `json:"class"`
-	Size  string `json:"size"`
+	//Size is the storage size
+	Size string `json:"size"`
+	// Alias is user-defined name of class name
+	Alias string `json:"alias"`
+	// ClassName is the storage class name.
+	ClassName string `json:"className"`
+	// PersistentVolumeClaimName is name of storage
+	PersistentVolumeClaimName *string `json:"persistentVolumeClaimName,omitempty"`
 }
 
 // ProjectPhase is the state of Project.
@@ -88,8 +121,14 @@ type MLNeuronRef struct {
 	// Name of reference MLNeuron crd name.
 	Name string `json:"name"`
 
+	// The original name the current neuron come from
+	Origin string `json:"origin"`
+
 	// Time when the MLNeuron is added to this Step
 	AdditionTime *metav1.Time `json:"additionTime"`
+
+	// Used for show simple status in project-step page with request every MLNeuron
+	Phase MLNeuronPhase `json:"phase"`
 
 	// TODO @codeflitting Add more fields according to product display style
 	// Can only add fields that will not be changed after creation
@@ -130,20 +169,14 @@ type MLNeuron struct {
 	Status MLNeuronStatus `json:"status"`
 }
 
-// CodeRepository information for code pull
-type CodeRepository struct {
-	// Like: git@github.com:caicloud/xxx.git
-	URL string `json:"url"`
-	// A name of user who can access this code
-	Username string `json:"username"`
-	// Password or token
-	Password string `json:"password"`
-	// Similar to version
-	Tag string `json:"tag"`
-}
-
 // MLNeuronSpec is a desired state description of the Neuron.
 type MLNeuronSpec struct {
+	// Creator who create this MLNeuron
+	Creator string `json:"creator"`
+
+	// Config of storageClass and storageSize
+	Storage StorageConfig `json:"storage"`
+
 	// Volumes is the list of Kubernetes volumes that can be mounted by the Neuron.
 	// Optional.
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
@@ -158,8 +191,8 @@ type MLNeuronSpec struct {
 	// More than one replica when it is distributed training
 	Replicas []NeuronReplica `json:"replicas,omitempty"`
 
-	// Information for how to pull code
-	CodeRepositories []CodeRepository `json:"codeRepositories"`
+	// Repository information
+	Repository *RepositoryConfig `json:"repository,omitempty"`
 
 	// The default directory when user start work
 	WorkDir string `json:"workDir"`
@@ -183,7 +216,7 @@ type MLNeuronSpec struct {
 	Command string `json:"command"`
 
 	// Tasks is the job task created by controller
-	Tasks []MLNeuronTask `json:"tasks,omitempty"`
+	Task *MLNeuronTask `json:"task,omitempty"`
 
 	// Some frame-specific fields that require manual input by the user
 	// Should be store here，
@@ -369,9 +402,6 @@ const (
 	// When pushing data, code, model
 	MLNeuronPushing MLNeuronPhase = "Pushing"
 
-	// When running a training job
-	MLNeuronTraining MLNeuronPhase = "Training"
-
 	// MLNeuron state will be transformed to "Running" by controller when
 	// there has ongoing task
 	MLNeuronRunning MLNeuronPhase = "Running"
@@ -385,10 +415,63 @@ const (
 	MLNeuronFailed MLNeuronPhase = "Failed"
 )
 
-type MLNeuronHistory struct {
-	User      string       `json:"user"`
+type MLNeuronStatus struct {
+	// Save status for MLNeuron when it runs every time
+	Histories []MLNeuronTask `json:"histories"`
+	// Phase is the state of the MLNeuron
+	Phase MLNeuronPhase `json:"phase"`
+}
+
+// MLNeuron Task Type of MLNeuronTask
+type MLNeuronTaskJobType string
+
+const (
+	// Pull  task is used to pull input and output to MLNeuron pvc
+	PullTask MLNeuronTaskJobType = "Pull"
+
+	// Submit  task is used to submit MLNeuronJob
+	SubmitTask MLNeuronTaskJobType = "Submit"
+
+	// Push data task is used to push output dataset to remote
+	PushTask MLNeuronTaskJobType = "Push"
+)
+
+// Data sets
+type MLNeuronTaskJobData struct {
+	Inputs     []DataSource      `json:"inputs"`
+	Outputs    []DataSource      `json:"outputs"`
+	Repository *RepositoryConfig `json:"repository,omitempty"`
+}
+
+type MLNeuronTaskJob struct {
+	// MLNeuron task's job name
+	JobID string `json:"jobId"`
+
+	// MLNeuron task type
+	Type MLNeuronTaskJobType `json:"type"`
+
+	// Data sets and model sets and code repository that need to be pulled or pushed
+	Data *MLNeuronTaskJobData `json:"data,omitempty"`
+
+	// MLNeuron task's job state
+	Status MLNeuronPhase `json:"status"`
+}
+
+type MLNeuronTask struct {
+	// Task id is unique in mlneuron
+	TaskID string `json:"taskId"`
+
+	// Submitter of this MLNeuron task
+	Submitter string `json:"submitter"`
+
+	// Task start time
 	StartTime *metav1.Time `json:"startTime"`
-	EndTime   *metav1.Time `json:"endTime"`
+
+	// Task end time
+	EndTime *metav1.Time `json:"endTime"`
+
+	// Job list of MLNeuron
+	Jobs []MLNeuronTaskJob `json:"jobs"`
 
 	// MLNeuronStatus.Phase will update by this value
 	Phase MLNeuronPhase `json:"phase"`
@@ -396,51 +479,8 @@ type MLNeuronHistory struct {
 	// Human readable message indicating the reason for Failure
 	Message string `json:"message"`
 
-	// Task information for debugging
-	Tasks []MLNeuronTask `json:"tasks"`
-}
-
-type MLNeuronStatus struct {
-	// Save status for MLNeuron when it runs every time
-	Histories []MLNeuronHistory `json:"histories"`
-	// Phase is the state of the MLNeuron
-	Phase MLNeuronPhase `json:"phase"`
-}
-
-// MLNeuron Task Type of MLNeuronTask
-type MLNeuronTaskType string
-
-const (
-	// Pull  task is used to pull input and output to MLNeuron pvc
-	PullTask MLNeuronTaskType = "Pull"
-
-	// Submit  task is used to submit MLNeuronJob
-	SubmitTask MLNeuronTaskType = "Submit"
-
-	// Push data task is used to push output dataset to remote
-	PushTask MLNeuronTaskType = "Push"
-)
-
-type TaskStatusType string
-
-const (
-	// Task status before submit
-	TaskStatusEmpty TaskStatusType = ""
-
-	// Task status after submit
-	TaskStatusCreated   TaskStatusType = "Created"
-	TaskStatusPending   TaskStatusType = "Pending"
-	TaskStatusRunning   TaskStatusType = "Running"
-	TaskStatusSucceeded TaskStatusType = "Succeeded"
-	TaskStatusFailed    TaskStatusType = "Failed"
-)
-
-type MLNeuronTask struct {
-	Type     MLNeuronTaskType `json:"type"`
-	TaskID   string           `json:"taskId"`
-	Datasets []DataSource     `json:"datasets,omitempty"`
-	Status   TaskStatusType   `json:"status"`
-	User     string           `json:"user"`
+	// remove input,output when task succeed or failed
+	CleanAfterFinish bool `json:"cleanAfterFinish"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -479,6 +519,20 @@ type FlavorSpec struct {
 	ResourceList []ResourceConfig `json:"resourceList"`
 }
 
+// The type of image
+type ImageType string
+
+const (
+	// CustomImageType represents a user-defined image.
+	CustomImageType ImageType = "custom"
+
+	// PresetImageType represents a preset image of the platform.
+	PresetImageType ImageType = "preset"
+
+	// PresetImageType represents a preset pure image of the platform.
+	PresetPureImageType ImageType = "preset-pure"
+)
+
 // ImageFlavor is the image configuration.
 type ImageFlavor struct {
 	// The name of the image shown to user.
@@ -487,13 +541,8 @@ type ImageFlavor struct {
 	// Docker registry of the image mirror.
 	Image string `json:"image"`
 
-	// Image build type.
-	// False：image build by clever platform.
-	// True ：user defines image.
-	BuiltIn bool `json:"builtIn"`
-
-	// Whether or not this image support GPU
-	GPUSupport bool `json:"gpuSupport"`
+	// Type of image
+	Type ImageType `json:"type"`
 }
 
 // Recommended resource configuration.
@@ -530,4 +579,26 @@ type FlavorList struct {
 
 	// List of Flavor
 	Items []Flavor `json:"items"`
+}
+
+// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// User for cascading delete
+type MLNeuronTaskOwner struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// Standard object's metadata.
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+type MLNeuronTaskOwnerList struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// Standard list metadata.
+	metav1.ListMeta `json:"metadata"`
+
+	Items []MLNeuronTaskOwner `json:"items"`
 }
