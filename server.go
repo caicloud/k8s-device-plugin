@@ -16,7 +16,9 @@ import (
 	"github.com/caicloud/clientset/pkg/apis/resource/v1beta1"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
 )
@@ -27,6 +29,13 @@ const (
 	envDisableHealthChecks = "DP_DISABLE_HEALTHCHECKS"
 	allHealthChecks        = "xids"
 	formatResourceName     = "nvidia.com"
+
+	// GPUMemory, in bytes. (1Gi = 1GiB = 1 * 1024 * 1024 * 1024)
+	GPUMemory         = "gpu.memory"
+	GPUThread         = "gpu.thread"
+	GPUThreadCapacity = int64(100)
+
+	mpsPath = "/tmp/nvidia-mps"
 )
 
 // NvidiaDevicePlugin implements the Kubernetes device plugin API
@@ -173,6 +182,12 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 			Envs: map[string]string{
 				"NVIDIA_VISIBLE_DEVICES": strings.Join(req.DevicesIDs, ","),
 			},
+			Mounts: []*pluginapi.Mount{
+				{
+					ContainerPath: mpsPath,
+					HostPath:      mpsPath,
+				},
+			},
 		}
 
 		for _, id := range req.DevicesIDs {
@@ -254,6 +269,7 @@ func (m *NvidiaDevicePlugin) GenerateExtendedResources() {
 		cores := appendString(convertUint(dev.Clocks.Cores), "MHz")
 		bandwidth := appendString(convertUint(dev.PCI.Bandwidth), "MB")
 		memory := appendString(convertUint64(dev.Memory), "MiB")
+		gpuMemory := convertInt64(dev.Memory) * 1024 * 1024
 
 		extendedResource := &v1beta1.ExtendedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -286,11 +302,22 @@ func (m *NvidiaDevicePlugin) GenerateExtendedResources() {
 			},
 			Status: v1beta1.ExtendedResourceStatus{
 				Phase: v1beta1.ExtendedResourceAvailable,
+				Capacity: corev1.ResourceList{
+					GPUMemory: *resource.NewQuantity(gpuMemory, resource.BinarySI),
+					GPUThread: *resource.NewQuantity(GPUThreadCapacity, resource.DecimalSI),
+				},
+				Allocatable: corev1.ResourceList{
+					GPUMemory: *resource.NewQuantity(gpuMemory, resource.BinarySI),
+					GPUThread: *resource.NewQuantity(GPUThreadCapacity, resource.DecimalSI),
+				},
 			},
 		}
 
 		extendedResourceOrigin, err := m.resourceClient.ResourceV1beta1().ExtendedResources().Get(extendedResourceName, metav1.GetOptions{})
 		if err == nil && extendedResourceOrigin != nil {
+			if extendedResourceOrigin.Annotations != nil {
+				extendedResource.Annotations = extendedResourceOrigin.Annotations
+			}
 			extendedResource.ResourceVersion = extendedResourceOrigin.ResourceVersion
 			_, err := m.resourceClient.ResourceV1beta1().ExtendedResources().Update(extendedResource)
 			if err != nil {
@@ -360,4 +387,11 @@ func convertUint64(i *uint64) string {
 		return "0"
 	}
 	return fmt.Sprintf("%d", *i)
+}
+
+func convertInt64(i *uint64) int64 {
+	if i == nil {
+		return 0
+	}
+	return int64(*i)
 }
