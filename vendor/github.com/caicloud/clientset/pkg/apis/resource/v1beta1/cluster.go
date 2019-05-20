@@ -27,6 +27,7 @@ type Cluster struct {
 	Status ClusterStatus `json:"status"`
 }
 
+// ClusterSpec is a description of a cluster.
 type ClusterSpec struct {
 	DisplayName      string                     `json:"displayName"`
 	Provider         CloudProvider              `json:"provider"`
@@ -46,6 +47,7 @@ type ClusterSpec struct {
 	Ratio        ClusterRatio `json:"ratio"`
 }
 
+// ClusterStatus represents information about the status of a cluster.
 type ClusterStatus struct {
 	Phase          ClusterPhase                       `json:"phase"`
 	Conditions     []ClusterCondition                 `json:"conditions"`
@@ -92,6 +94,7 @@ type Machine struct {
 	Status MachineStatus `json:"status"`
 }
 
+// MachineSpec is a description of a machine.
 type MachineSpec struct {
 	Provider         CloudProvider              `json:"provider"`
 	ProviderConfig   MachineCloudProviderConfig `json:"providerConfig,omitempty"`
@@ -105,6 +108,7 @@ type MachineSpec struct {
 	Tags             map[string]string          `json:"tags"`
 }
 
+// MachineStatus represents information about the status of a machine.
 type MachineStatus struct {
 	Phase MachinePhase `json:"phase"`
 	// env
@@ -121,6 +125,19 @@ type MachineStatus struct {
 	// +patchMergeKey=type
 	// +patchStrategy=merge
 	Conditions []MachineCondition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,2,rep,name=conditions"`
+
+	ProviderStatus MachineProviderStatus `json:"providerStatus,omitempty"`
+}
+
+// MachineProviderStatus represents information about the cloud status of a machine.
+type MachineProviderStatus struct {
+	Aliyun *AliyunMachineCloudProviderStatus `json:"aliyun,omitempty"`
+}
+
+// AliyunMachineCloudProviderStatus represents information about the aliyun machine status.
+type AliyunMachineCloudProviderStatus struct {
+	Status          AliyunInstanceStatusType `json:"status,omitempty"`
+	AutoReleaseTime string                   `json:"autoReleaseTime,omitempty"`
 }
 
 // MachineConditionType is a valid value for MachineCondition.Type
@@ -172,31 +189,268 @@ type MachineList struct {
 	Items []Machine `json:"items" protobuf:"bytes,2,rep,name=items"`
 }
 
-// cloud provider
-
+// MachineCloudProviderConfig is a description of cloud machine config.
 type MachineCloudProviderConfig struct {
-	// auto scaling
-
 	// auto scaling group name which this machine belongs to
 	// empty means not belongs to any auto scaling group
 	AutoScalingGroup string `json:"autoScalingGroup,omitempty"`
 
+	// Azure is the specific config of Azure VM
 	Azure *AzureMachineCloudProviderConfig `json:"azure,omitempty"`
+
+	// Aliyun is the specific config of Aliyun ECS
+	Aliyun *AliyunMachineCloudProviderConfig `json:"aliyun,omitempty"`
 }
 
+// ClusterCloudProviderConfig is a description of cloud cluster config.
 type ClusterCloudProviderConfig struct {
-	// auto scaling
-
 	// cluster level auto scaling setting
 	// maybe nil in old or control cluster, need to be inited with a default setting by controller
 	AutoScalingSetting *ClusterAutoScalingSetting `json:"autoScalingSetting,omitempty"`
 
-	Azure    *AzureClusterCloudProviderConfig    `json:"azure,omitempty"`
+	// Azure is the specific config of Azure Cluster
+	Azure *AzureClusterCloudProviderConfig `json:"azure,omitempty"`
+
+	// AzureAks is the specific config of Azure Aks Cluster
 	AzureAks *AzureAksClusterCloudProviderConfig `json:"azureAks,omitempty"`
+
+	// Aliyun is the specific config of aliyun cluster
+	Aliyun *AliyunClusterCloudProviderConfig `json:"aliyun,omitempty"`
+}
+
+// AliyunInstanceType is a label for the aliyun instance type
+type AliyunInstanceType struct {
+	Name   string `json:"name,omitempty"`
+	Family string `json:"family,omitempty"`
+}
+
+// AliyunInstanceNetworkType is a label for the aliyun instance network type
+type AliyunInstanceNetworkType string
+
+const (
+	// AliyunInstanceNetworkClassic for classic network, doesn't support
+	AliyunInstanceNetworkClassic AliyunInstanceNetworkType = "Classic"
+	// AliyunInstanceNetworkVPC for vpc network, only support
+	AliyunInstanceNetworkVPC AliyunInstanceNetworkType = "Vpc"
+)
+
+// AliyunInstanceChargeType is a label for the aliyun instance charge type
+type AliyunInstanceChargeType string
+
+const (
+	// AliyunInstanceChargePostPaid for paid by quantity
+	AliyunInstanceChargePostPaid AliyunInstanceChargeType = "PostPaid"
+	// AliyunInstanceChargePrePaid for paid before use
+	AliyunInstanceChargePrePaid AliyunInstanceChargeType = "PrePaid"
+)
+
+// AliyunChargePeriodType is a label for the aliyun charge unit
+type AliyunChargePeriodType string
+
+const (
+	// AliyunChargePeriodWeek for week
+	AliyunChargePeriodWeek AliyunChargePeriodType = "Week"
+	// AliyunChargePeriodMonth for month
+	AliyunChargePeriodMonth AliyunChargePeriodType = "Month"
+	// AliyunChargePeriodYear for year
+	AliyunChargePeriodYear AliyunChargePeriodType = "Year"
+)
+
+// AliyunInstanceChargeAttr is a describe of aliyun instance charge
+type AliyunInstanceChargeAttr struct {
+	PaidType        AliyunInstanceChargeType `json:"paidType,omitempty"`
+	Period          int                      `json:"period,omitempty"`
+	PeriodUnit      AliyunChargePeriodType   `json:"periodUnit,omitempty"`
+	AutoRenew       bool                     `json:"autoRenew,omitempty"`
+	AutoRenewPeriod int                      `json:"autoRenewPeriod,omitempty"`
+}
+
+// AliyunInternetChargeType is a label for the aliyun internet charge type
+type AliyunInternetChargeType string
+
+const (
+	// AliyunInstanceStatusRunning for running
+	AliyunInstanceStatusRunning AliyunInstanceStatusType = "Running"
+	// AliyunInstanceStatusStarting for starting
+	AliyunInstanceStatusStarting AliyunInstanceStatusType = "Starting"
+	// AliyunInstanceStatusStopping for stopping
+	AliyunInstanceStatusStopping AliyunInstanceStatusType = "Stopping"
+	// AliyunInstanceStatusStopped for stopped
+	AliyunInstanceStatusStopped AliyunInstanceStatusType = "Stopped"
+)
+
+const (
+	// AliyunInternetChargeByTraffic for pay by traffic
+	AliyunInternetChargeByTraffic AliyunInternetChargeType = "PayByTraffic"
+	// AliyunInternetChargeByBandwidth for pay by bandwidth
+	AliyunInternetChargeByBandwidth AliyunInstanceChargeType = "PayByBandwidth"
+)
+
+// AliyunInstanceStatusType is a label for the aliyun instance status
+type AliyunInstanceStatusType string
+
+// AliyunObjectMeta is the meta description of aliyun object
+type AliyunObjectMeta struct {
+	// ID is the resource id, unique, for example: i-bp1dfo67k1mxxp5obrjp, rg-aekznzdm55kjvpy
+	ID string `json:"id,omitempty"`
+
+	// Name is the display name of object, it can be changed
+	Name string `json:"name,omitempty"`
+
+	// RegionID is the Region where the object locate, for example: cn-hangzhou
+	RegionID string `json:"regionID,omitempty"`
+
+	// ResourceGroupID is the resource group which the object belong, it may be empty if the resource group is default group
+	ResourceGroupID string `json:"resourceGroupID,omitempty"`
+}
+
+// AliyunImage is a description of aliyun image
+type AliyunImage struct {
+	AliyunObjectMeta `json:",inline"`
+}
+
+// AliyunDiskCategoryType is a label for aliyun disk category
+type AliyunDiskCategoryType string
+
+const (
+	// AliyunDiskCategoryCloud for basic cloud disk, default
+	AliyunDiskCategoryCloud AliyunDiskCategoryType = "cloud"
+	// AliyunDiskCategoryCloudEfficiency for efficiency cloud disk
+	AliyunDiskCategoryCloudEfficiency AliyunDiskCategoryType = "cloud_efficiency"
+	// AliyunDiskCategoryCloudSSD for cloud ssd disk
+	AliyunDiskCategoryCloudSSD AliyunDiskCategoryType = "cloud_ssd"
+	// AliyunDiskCategoryEphemeralSSD for ephemeral ssd disk
+	AliyunDiskCategoryEphemeralSSD AliyunDiskCategoryType = "ephemeral_ssd"
+	// AliyunDiskCategoryCloudESSD for cloud essd disk
+	AliyunDiskCategoryCloudESSD AliyunDiskCategoryType = "cloud_essd"
+)
+
+// AliyunDisk is a description of aliyun disk
+type AliyunDisk struct {
+	AliyunObjectMeta `json:",inline"`
+	// Size is the size of disk, GiB
+	Size               int    `json:"size,omitempty"`
+	Category           string `json:"category,omitempty"`
+	SnapshotID         string `json:"snapshotID,omitempty"`
+	DeleteWithInstance bool   `json:"deleteWithInstance,omitempty"`
+}
+
+// AliyunVPC is a description of aliyun vpc
+type AliyunVPC struct {
+	AliyunObjectMeta `json:",inline"`
+	CidrBlock        string `json:"cidrBlock,omitempty"`
+	IsDefault        bool   `json:"isDefault,omitempty"`
+	NetGatewayID     string `json:"natGatewayID,omitempty"`
+}
+
+// AliyunVSwitch is a description of aliyun vswitch
+type AliyunVSwitch struct {
+	AliyunObjectMeta `json:",inline"`
+	VPCID            string `json:"vpcID,omitempty"`
+	CidrBlock        string `json:"cidrBlock,omitempty"`
+	ZoneID           string `json:"json:"zoneID,omitempty"`
+	IsDefault        bool   `json:"isDefault,omitempty"`
+}
+
+// AliyunSecurityGroup is a desription of aliyun security group
+type AliyunSecurityGroup struct {
+	AliyunObjectMeta `json:",inline"`
+	VPCID            string `json:"vpcID,omitempty"`
+}
+
+// AliyunNetworkInterface is a description of aliyun network interface
+type AliyunNetworkInterface struct {
+	AliyunObjectMeta `json:",inline"`
+	SecurityGroup    AliyunSecurityGroup `json:"securityGroup,omitempty"`
+	VSwitch          AliyunVSwitch       `json:"vswitch,omitempty"`
+	PrimaryIpAddress string              `json:"primaryIpAddress,omitempty"`
+}
+
+// AliyunAddressType is a label for aliyun address type
+type AliyunAddressType string
+
+const (
+	// AliyunAddressInternet for public
+	AliyunAddressInternet AliyunAddressType = "internet"
+	// AliyunAddressIntranet for private
+	AliyunAddressIntranet AliyunAddressType = "intranet"
+)
+
+// AliyunLoadBalancer is a description of aliyun load balancer
+type AliyunLoadBalancer struct {
+	AliyunObjectMeta `json:",inline"`
+	Address          string                           `json:"address,omitempty"`
+	AddressType      AliyunAddressType                `json:"addressType,omitempty"`
+	VSwitch          AliyunVSwitch                    `json:"vswitch,omitempty"`
+	VPC              AliyunVPC                        `json:"vpc,omitempty"`
+	MasterZoneID     string                           `json:"masterZoneID,omitempty"`
+	SlaveZoneID      string                           `json:"slaveZoneID,omitempty"`
+	ClientToken      string                           `json:"clientToken,omitempty"`
+	VServerGroups    []AliyunLoadBalancerVServerGroup `json:"vserverGroups,omitempty"`
+	Listeners        []AliyunLoadBalancerListener     `json:"listeners,omitempty"`
+}
+
+// AliyunLoadBalancerBackendServer is a description of aliyun load balancer backend server
+type AliyunLoadBalancerBackendServer struct {
+	ServerID string `json:"serverID,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	Weight   int    `json:"weight,omitempty"`
+	Type     string `json:"type,omitempty"`
+}
+
+// AliyunLoadBalancerVServerGroup is a description of aliyun load balancer virtual server group
+type AliyunLoadBalancerVServerGroup struct {
+	AliyunObjectMeta `json:",inline"`
+	BackendServers   []AliyunLoadBalancerBackendServer `json:"backendServers,omitempty"`
+}
+
+// AliyunLoadBalancerListener is a description of aliyun load balancer listener
+type AliyunLoadBalancerListener struct {
+	ListenPort        int    `json:"listenPort,omitempty"`
+	BackendServerPort int    `json:"backendServerPort,omitempty"`
+	Status            string `json:"status,omitempty"`
+	VServerGroupID    string `json:"vserverGroupID,omitempty"`
+}
+
+// AliyunMachineCloudProviderConfig is a description of a aliyun ecs
+type AliyunMachineCloudProviderConfig struct {
+	AliyunObjectMeta        `json:",inline"`
+	Image                   AliyunImage               `json:"image,omitempty"`
+	InstanceType            AliyunInstanceType        `json:"instanceType,omitempty"`
+	InstanceNetworkType     AliyunInstanceNetworkType `json:"instanceNetworkType,omitempty"`
+	InstanceCharge          AliyunInstanceChargeAttr  `json:"instanceCharge,omitempty"`
+	ZoneID                  string                    `json:"zoneID,omitempty"`
+	InternetChargeType      AliyunInternetChargeType  `json:"internetChargeType,omitempty"`
+	InternetMaxBandwidthIn  int                       `json:"internetMaxBandwidthIn,omitempty"`
+	InternetMaxBandwidthOut int                       `json:"internetMaxBandwidthOut,omitempty"`
+	CPU                     int                       `json:"cpu,omitempty"`
+	Memory                  int                       `json:"memory,omitempty"`
+	OSType                  string                    `json:"osType,omitempty"`
+	IOOptimized             bool                      `json:"ioOptimized,omitempty"`
+	KeyPairName             string                    `json:"keyPairName,omitempty"`
+	ClientToken             string                    `json:"clientToken,omitempty"`
+	User                    string                    `json:"user,omitempty"`
+	Password                string                    `json:"password,omitempty"`
+	OSDisk                  AliyunDisk                `json:"osDisk,omitempty"`
+	DataDisks               []AliyunDisk              `json:"dataDisks,omitempty"`
+	VPC                     AliyunVPC                 `json:"vpc,omitempty"`
+	VSwitch                 AliyunVSwitch             `json:"vswitch,omitempty"`
+	SecurityGroup           AliyunSecurityGroup       `json:"securityGroup,omitempty"`
+	NetworkInterfaces       []AliyunNetworkInterface  `json:"networkInterfaces,omitempty"`
+}
+
+// AliyunClusterCloudProviderConfig is a description of a aliyun ecs cluster
+type AliyunClusterCloudProviderConfig struct {
+	RegionID string    `json:"regionID,omitempty"`
+	VPC      AliyunVPC `json:"vpc,omitempty"`
+	// the eip use for snat
+	EIP          string              `json:"eip,omitempty"`
+	LoadBalancer *AliyunLoadBalancer `json:"loadBalancer,omitempty"`
 }
 
 // azure
 
+// AzureObjectMeta is the meta description of azure object
 type AzureObjectMeta struct {
 	// ID - Resource ID.
 	ID string `json:"id,omitempty"`
@@ -215,8 +469,11 @@ type AzureClusterCloudProviderConfig struct {
 	Location string `json:"location,omitempty"`
 	// VirtualNetwork - cluster azure virtual network
 	VirtualNetwork AzureVirtualNetwork `json:"virtualNetwork"`
+	// Deprecated: ha cluster need more than 1 lb
 	// LoadBalancer - ha cluster vip is azure lb
 	LoadBalancer *AzureLoadBalancer `json:"loadBalancer,omitempty"`
+	// LoadBalancers - ha cluster need 2 azure lb
+	LoadBalancers []AzureLoadBalancer `json:"loadBalancers,omitempty"`
 }
 
 // AzureAksClusterCloudProviderConfig for azure aks cluster config
@@ -297,6 +554,7 @@ type AzureManagedClusterNetworkProfile struct {
 	DockerBridgeCIDR string `json:"dockerBridgeCIDR"`
 }
 
+// AzureMachineCloudProviderConfig is a description of a azure vm
 type AzureMachineCloudProviderConfig struct {
 	AzureObjectMeta
 	VirtualNetwork    AzureVirtualNetwork     `json:"virtualNetwork"`
@@ -685,6 +943,7 @@ type MachineGPUInfo struct {
 type ClusterScaleUpSetting struct {
 	Algorithm            string `json:"algorithm"`
 	IsQuotaUpdateEnabled bool   `json:"isQuotaUpdateEnabled"`
+	// Deprecated: the scale-up has been switched to pre-scheduling, no longer need the cooldown time anymore.
 	// cool down time after any cluster scale up action, waiting for pods schedule
 	CoolDown metav1.Duration `json:"coolDown"`
 }
@@ -785,7 +1044,23 @@ type MASGSpec struct {
 
 // MASGProviderConfig describe MachineAutoScalingGroup provider config
 type MASGProviderConfig struct {
-	Azure *AzureMASGProviderConfig `json:"azure"`
+	Azure  *AzureMASGProviderConfig  `json:"azure,omitempty"`
+	Aliyun *AliyunMASGProviderConifg `json:"aliyun,omitempty"`
+}
+
+// AliyunMASGProviderConifg is description for aliyun scaling template
+type AliyunMASGProviderConifg struct {
+	AliyunObjectMeta `json:",inline"`
+	VPC              AliyunVPC           `json:"vpc,omitempty"`
+	VSwitch          AliyunVSwitch       `json:"vswitch,omitempty"`
+	LoginUser        string              `json:"loginUser,omitempty"`
+	LoginPassword    string              `json:"loginPassword,omitempty"`
+	InstanceType     AliyunInstanceType  `json:"instanceType,omitempty"`
+	Image            AliyunImage         `json:"image,omitempty"`
+	OSDisk           AliyunDisk          `json:"osDisk,omitempty"`
+	DataDisks        []AliyunDisk        `json:"dataDisks,omitempty"`
+	SecurityGroup    AliyunSecurityGroup `json:"securityGroup,omitempty"`
+	// TODO(yangsongin): copy the internet config?
 }
 
 // AzureMASGProviderConfig describe machine auto scaling group provider config for azure
