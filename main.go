@@ -79,6 +79,10 @@ L:
 				restart = false
 			}
 
+			err := devicePlugin.checkAndDeleteER()
+			if err != nil {
+				log.Printf("Check and delete error: %+v", err)
+			}
 			devicePlugin.GenerateExtendedResources()
 		}
 

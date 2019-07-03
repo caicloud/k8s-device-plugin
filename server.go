@@ -360,6 +360,40 @@ func (m *NvidiaDevicePlugin) updateExtendedResource(d *pluginapi.Device, phase v
 	}
 }
 
+func (m *NvidiaDevicePlugin) checkAndDeleteER() error {
+	nodeName := os.Getenv("NODE_NAME")
+	if nodeName == "" {
+		log.Fatalf("nodeName cannot be empty.")
+	}
+
+	labelSelector := fmt.Sprintf("hostname=%s", nodeName)
+	resourceList, err := m.resourceClient.ResourceV1beta1().ExtendedResources().List(metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return err
+	}
+
+	for _, er := range resourceList.Items {
+		if !deviceIDExists(er.Spec.DeviceID, m.devs) {
+			err := m.resourceClient.ResourceV1beta1().ExtendedResources().Delete(er.Name, &metav1.DeleteOptions{})
+			if err != nil {
+				log.Printf("Delete er: %v", err)
+			}
+		}
+	}
+	return nil
+}
+
+func deviceIDExists(deviceID string, devs []*pluginapi.Device) bool {
+	exists := false
+	for _, d := range devs {
+		if deviceID == d.ID {
+			exists = true
+			break
+		}
+	}
+	return exists
+}
+
 func formatExtendedName(deviceID string) string {
 	return fmt.Sprintf("%s-%s", formatResourceName, strings.ToLower(deviceID))
 }
