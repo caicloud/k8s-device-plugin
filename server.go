@@ -333,7 +333,7 @@ func (m *NvidiaDevicePlugin) GenerateExtendedResources() {
 					log.Printf("Create ExtendedResource: %+v", err)
 					continue
 				}
-			}  else {
+			} else {
 				log.Printf("Get ExtendedResource: %+v", err)
 			}
 		}
