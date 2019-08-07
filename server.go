@@ -326,15 +326,16 @@ func (m *NvidiaDevicePlugin) GenerateExtendedResources() {
 			}
 		}
 
-		if errors.IsNotFound(err) {
-			_, err := m.resourceClient.ResourceV1beta1().ExtendedResources().Create(extendedResource)
-			if err != nil {
-				log.Printf("Create ExtendedResource: %+v", err)
-				continue
-			}
-		}
 		if err != nil {
-			log.Printf("Get ExtendedResource: %+v", err)
+			if errors.IsNotFound(err) {
+				_, err := m.resourceClient.ResourceV1beta1().ExtendedResources().Create(extendedResource)
+				if err != nil {
+					log.Printf("Create ExtendedResource: %+v", err)
+					continue
+				}
+			}  else {
+				log.Printf("Get ExtendedResource: %+v", err)
+			}
 		}
 	}
 }
