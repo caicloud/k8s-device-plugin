@@ -22,17 +22,21 @@ import (
 	"syscall"
 
 	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	resourcev1beta1 "github.com/caicloud/clientset/customclient/typed/resource/v1beta1"
+	"github.com/caicloud/clientset/kubernetes"
 	"github.com/fsnotify/fsnotify"
-	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
+	"k8s.io/client-go/rest"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
-func getAllPlugins() []*NvidiaDevicePlugin {
+func getAllPlugins(clientset resourcev1beta1.ExtendedResourceInterface) []*NvidiaDevicePlugin {
 	return []*NvidiaDevicePlugin{
 		NewNvidiaDevicePlugin(
+			clientset,
 			"nvidia.com/gpu",
 			NewGpuDeviceManager(),
 			"NVIDIA_VISIBLE_DEVICES",
-			pluginapi.DevicePluginPath + "nvidia.sock"),
+			pluginapi.DevicePluginPath+"nvidia.sock"),
 	}
 }
 
@@ -59,8 +63,10 @@ func main() {
 	log.Println("Starting OS watcher.")
 	sigs := newOSWatcher(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
+	clientset := createClientset()
+
 	log.Println("Retreiving plugins.")
-	plugins := getAllPlugins()
+	plugins := getAllPlugins(clientset)
 
 restart:
 	// Loop through all plugins, idempotently stopping them, and then starting
@@ -72,7 +78,8 @@ restart:
 		p.Stop()
 
 		// Just continue if there are no devices to serve for plugin p.
-		if len(p.Devices()) == 0 {
+		devs, _ := p.Devices()
+		if len(devs) == 0 {
 			continue
 		}
 
@@ -130,4 +137,17 @@ events:
 			}
 		}
 	}
+}
+
+func createClientset() resourcev1beta1.ExtendedResourceInterface {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		log.Panicf("unable to create kubeconfig: %+v", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Panicf("unable to create clientset: %+v", err)
+	}
+	return clientset.Custom().ResourceV1beta1().ExtendedResources()
 }

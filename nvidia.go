@@ -22,8 +22,7 @@ import (
 	"strings"
 
 	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
-
-	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
 const (
@@ -32,11 +31,11 @@ const (
 )
 
 type ResourceManager interface {
-	Devices() []*pluginapi.Device
+	Devices() ([]*pluginapi.Device, []*nvml.Device)
 	CheckHealth(stop <-chan interface{}, devices []*pluginapi.Device, unhealthy chan<- *pluginapi.Device)
 }
 
-type GpuDeviceManager struct {}
+type GpuDeviceManager struct{}
 
 func check(err error) {
 	if err != nil {
@@ -48,18 +47,20 @@ func NewGpuDeviceManager() *GpuDeviceManager {
 	return &GpuDeviceManager{}
 }
 
-func (g *GpuDeviceManager) Devices() []*pluginapi.Device {
+func (g *GpuDeviceManager) Devices() ([]*pluginapi.Device, []*nvml.Device) {
 	n, err := nvml.GetDeviceCount()
 	check(err)
 
 	var devs []*pluginapi.Device
+	var nvmlDevs []*nvml.Device
 	for i := uint(0); i < n; i++ {
-		d, err := nvml.NewDeviceLite(i)
+		d, err := nvml.NewDevice(i)
 		check(err)
 		devs = append(devs, buildPluginDevice(d))
+		nvmlDevs = append(nvmlDevs, d)
 	}
 
-	return devs
+	return devs, nvmlDevs
 }
 
 func (g *GpuDeviceManager) CheckHealth(stop <-chan interface{}, devices []*pluginapi.Device, unhealthy chan<- *pluginapi.Device) {
