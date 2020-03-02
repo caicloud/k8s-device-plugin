@@ -332,17 +332,19 @@ func (h handle) deviceGetPowerManagementLimit() (*uint, error) {
 	return uintPtr(power), errorString(r)
 }
 
-func (h handle) deviceGetMaxClockInfo() (*uint, *uint, error) {
-	var sm, mem C.uint
+func (h handle) deviceGetMaxClockInfo() (*uint, *uint, *uint, *uint, error) {
+	var sm, mem, graphics, video C.uint
 
 	r := C.nvmlDeviceGetMaxClockInfo(h.dev, C.NVML_CLOCK_SM, &sm)
 	if r == C.NVML_ERROR_NOT_SUPPORTED {
-		return nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	if r == C.NVML_SUCCESS {
 		r = C.nvmlDeviceGetMaxClockInfo(h.dev, C.NVML_CLOCK_MEM, &mem)
+		C.nvmlDeviceGetMaxClockInfo(h.dev, C.NVML_CLOCK_GRAPHICS, &graphics)
+		C.nvmlDeviceGetMaxClockInfo(h.dev, C.NVML_CLOCK_VIDEO, &video)
 	}
-	return uintPtr(sm), uintPtr(mem), errorString(r)
+	return uintPtr(sm), uintPtr(mem), uintPtr(graphics), uintPtr(video), errorString(r)
 }
 
 func (h handle) deviceGetMaxPcieLinkGeneration() (*uint, error) {
@@ -716,4 +718,26 @@ func (h handle) getPeristenceMode() (state ModeState, err error) {
 		return
 	}
 	return ModeState(mode), errorString(r)
+}
+
+func (h handle) getDeviceBrand() (string, error) {
+	brand := C.nvmlBrandType_t(C.NVML_BRAND_UNKNOWN)
+	r := C.nvmlDeviceGetBrand(h.dev, &brand)
+	if r == C.NVML_SUCCESS {
+		switch brand {
+		case 0:
+			return "UNKNOWN", nil
+		case 1:
+			return "QUADRO", nil
+		case 2:
+			return "TESLA", nil
+		case 3:
+			return "NVS", nil
+		case 4:
+			return "GRID", nil
+		case 5:
+			return "GEFORCE", nil
+		}
+	}
+	return fmt.Sprintf("UNKNOWN:%d", uint(brand)), nil
 }

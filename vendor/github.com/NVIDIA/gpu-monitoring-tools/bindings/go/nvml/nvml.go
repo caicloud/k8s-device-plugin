@@ -183,14 +183,18 @@ func (t P2PLinkType) String() string {
 }
 
 type ClockInfo struct {
-	Cores  *uint
-	Memory *uint
+	Cores    *uint
+	Memory   *uint
+	Graphics *uint
+	Video    *uint
 }
 
 type PCIInfo struct {
 	BusID     string
 	BAR1      *uint64
 	Bandwidth *uint
+	MaxPcieLinkWidth      *uint
+	MaxPcieLinkGeneration *uint
 }
 
 type CudaComputeCapabilityInfo struct {
@@ -203,6 +207,8 @@ type Device struct {
 
 	UUID                  string
 	Path                  string
+	Name                  string
+	Brand                 string
 	Model                 *string
 	Power                 *uint
 	Memory                *uint64
@@ -338,6 +344,8 @@ func NewDevice(idx uint) (device *Device, err error) {
 	assert(err)
 	uuid, err := h.deviceGetUUID()
 	assert(err)
+	brand, err := h.getDeviceBrand()
+	assert(err)
 	minor, err := h.deviceGetMinorNumber()
 	assert(err)
 	power, err := h.deviceGetPowerManagementLimit()
@@ -352,7 +360,7 @@ func NewDevice(idx uint) (device *Device, err error) {
 	assert(err)
 	pciw, err := h.deviceGetMaxPcieLinkWidth()
 	assert(err)
-	ccore, cmem, err := h.deviceGetMaxClockInfo()
+	ccore, cmem, graphics, video, err := h.deviceGetMaxClockInfo()
 	assert(err)
 	cccMajor, cccMinor, err := h.deviceGetCudaComputeCapability()
 	assert(err)
@@ -368,6 +376,8 @@ func NewDevice(idx uint) (device *Device, err error) {
 		handle:      h,
 		UUID:        *uuid,
 		Path:        path,
+		Name:        *model,
+		Brand:       brand,
 		Model:       model,
 		Power:       power,
 		Memory:      totalMem,
@@ -376,10 +386,14 @@ func NewDevice(idx uint) (device *Device, err error) {
 			BusID:     *busid,
 			BAR1:      bar1,
 			Bandwidth: pciBandwidth(pcig, pciw), // MB/s
+			MaxPcieLinkWidth:      pciw,
+			MaxPcieLinkGeneration: pcig,
 		},
 		Clocks: ClockInfo{
 			Cores:  ccore, // MHz
 			Memory: cmem,  // MHz
+			Graphics: graphics,
+			Video:    video,
 		},
 		CudaComputeCapability: CudaComputeCapabilityInfo{
 			Major: cccMajor,

@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -25,27 +26,53 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/net/context"
+	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
+	resourcev1beta1 "github.com/caicloud/clientset/customclient/typed/resource/v1beta1"
+	"github.com/caicloud/clientset/pkg/apis/resource/v1beta1"
 	"google.golang.org/grpc"
-	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+)
+
+const (
+	formatResourceName = "nvidia.com"
+
+	// GPUMemory, in bytes. (1Gi = 1GiB = 1 * 1024 * 1024 * 1024)
+	GPUMemory         = "gpu.memory"
+	GPUThread         = "gpu.thread"
+	GPUThreadCapacity = int64(100)
+
+	mpsPath = "/tmp/nvidia-mps"
 )
 
 // NvidiaDevicePlugin implements the Kubernetes device plugin API
 type NvidiaDevicePlugin struct {
 	ResourceManager
+	clientset      resourcev1beta1.ExtendedResourceInterface
 	resourceName   string
 	allocateEnvvar string
-	socket string
+	socket         string
 
-	server *grpc.Server
+	server        *grpc.Server
 	cachedDevices []*pluginapi.Device
-	health chan *pluginapi.Device
-	stop   chan interface{}
+	nvmlDevs      []*nvml.Device
+	health        chan *pluginapi.Device
+	stop          chan interface{}
+	nodeName      string
 }
 
 // NewNvidiaDevicePlugin returns an initialized NvidiaDevicePlugin
-func NewNvidiaDevicePlugin(resourceName string, resourceManager ResourceManager, allocateEnvvar string, socket string) *NvidiaDevicePlugin {
+func NewNvidiaDevicePlugin(clientset resourcev1beta1.ExtendedResourceInterface, resourceName string, resourceManager ResourceManager, allocateEnvvar string, socket string) *NvidiaDevicePlugin {
+	nodeName := os.Getenv("NODE_NAME")
+	if len(nodeName) == 0 {
+		log.Fatalf("`NODE_NAME` env must be set and be `pod.spec.nodeName`.")
+	}
+
 	return &NvidiaDevicePlugin{
+		clientset:       clientset,
 		ResourceManager: resourceManager,
 		resourceName:    resourceName,
 		allocateEnvvar:  allocateEnvvar,
@@ -54,26 +81,33 @@ func NewNvidiaDevicePlugin(resourceName string, resourceManager ResourceManager,
 		// These will be reinitialized every
 		// time the plugin server is restarted.
 		cachedDevices: nil,
+		nvmlDevs:      nil,
 		server:        nil,
 		health:        nil,
 		stop:          nil,
-
+		nodeName:      nodeName,
 	}
 }
 
 func (m *NvidiaDevicePlugin) initialize() {
-	m.cachedDevices = m.Devices()
+	m.cachedDevices, m.nvmlDevs = m.Devices()
 	m.server = grpc.NewServer([]grpc.ServerOption{}...)
 	m.health = make(chan *pluginapi.Device)
 	m.stop = make(chan interface{})
+
+	m.createOrUpdateERs()
 }
 
 func (m *NvidiaDevicePlugin) cleanup() {
 	close(m.stop)
 	m.cachedDevices = nil
+	m.nvmlDevs = nil
 	m.server = nil
 	m.health = nil
 	m.stop = nil
+
+	// delete all ers on the node when cleanup
+	m.deleteAllERs()
 }
 
 // Start starts the gRPC server, registers the device plugin with the Kubelet,
@@ -204,6 +238,7 @@ func (m *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.Device
 			d.Health = pluginapi.Unhealthy
 			log.Printf("'%s' device marked unhealthy: %s", m.resourceName, d.ID)
 			s.Send(&pluginapi.ListAndWatchResponse{Devices: m.cachedDevices})
+			m.updateER(d, v1beta1.ExtendedResourcePending)
 		}
 	}
 }
@@ -215,6 +250,12 @@ func (m *NvidiaDevicePlugin) Allocate(ctx context.Context, reqs *pluginapi.Alloc
 		response := pluginapi.ContainerAllocateResponse{
 			Envs: map[string]string{
 				m.allocateEnvvar: strings.Join(req.DevicesIDs, ","),
+			},
+			Mounts: []*pluginapi.Mount{
+				{
+					ContainerPath: mpsPath,
+					HostPath:      mpsPath,
+				},
 			},
 		}
 
@@ -236,20 +277,19 @@ func (m *NvidiaDevicePlugin) PreStartContainer(context.Context, *pluginapi.PreSt
 
 // dial establishes the gRPC communication with the registered device plugin.
 func (m *NvidiaDevicePlugin) dial(unixSocketPath string, timeout time.Duration) (*grpc.ClientConn, error) {
-	c, err := grpc.Dial(unixSocketPath, grpc.WithInsecure(), grpc.WithBlock(),
-		grpc.WithTimeout(timeout),
-		grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if c, err := grpc.DialContext(ctx, unixSocketPath, grpc.WithInsecure(), grpc.WithBlock(),
+		grpc.WithContextDialer(func(_ context.Context, addr string) (net.Conn, error) {
 			return net.DialTimeout("unix", addr, timeout)
 		}),
-	)
-
-	if err != nil {
+	); err == nil {
+		return c, nil
+	} else {
 		return nil, err
 	}
-
-	return c, nil
 }
-
 
 func (m *NvidiaDevicePlugin) deviceExists(devs []*pluginapi.Device, id string) bool {
 	for _, d := range devs {
@@ -258,4 +298,149 @@ func (m *NvidiaDevicePlugin) deviceExists(devs []*pluginapi.Device, id string) b
 		}
 	}
 	return false
+}
+
+// createOrUpdateERs is create or update ExtendedResources
+func (m *NvidiaDevicePlugin) createOrUpdateERs() {
+	for _, dev := range m.nvmlDevs {
+		erName := formatExtendedName(dev.UUID)
+		cores := appendString(convertUint(dev.Clocks.Cores), "MHz")
+		bandwidth := appendString(convertUint(dev.PCI.Bandwidth), "MB")
+		memory := appendString(convertUint64(dev.Memory), "MiB")
+		gpuMemory := convertInt64(dev.Memory) * 1024 * 1024
+
+		extendedResource := &v1beta1.ExtendedResource{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: erName,
+				Labels: map[string]string{
+					"hostname":  m.nodeName,
+					"model":     strings.Replace(convertString(dev.Model), " ", "-", -1),
+					"cores":     cores,
+					"memory":    memory,
+					"bandwidth": bandwidth,
+				},
+			},
+			Spec: v1beta1.ExtendedResourceSpec{
+				RawResourceName: m.resourceName,
+				DeviceID:        dev.UUID,
+				NodeName:        m.nodeName,
+				Properties: map[string]string{
+					"Model":                 convertString(dev.Model),
+					"Cores":                 cores,
+					"Memory":                memory,
+					"Bandwidth":             bandwidth,
+					"MaxPcieLinkWidth":      convertUint(dev.PCI.MaxPcieLinkWidth),
+					"MaxPcieLinkGeneration": convertUint(dev.PCI.MaxPcieLinkGeneration),
+					"Brand":                 dev.Brand,
+					"Name":                  dev.Name,
+					"MaxGraphicsClock":      appendString(convertUint(dev.Clocks.Graphics), "MHz"),
+					"MaxMemClock":           appendString(convertUint(dev.Clocks.Memory), "MHz"),
+					"MaxVideoClock":         appendString(convertUint(dev.Clocks.Video), "MHz"),
+				},
+			},
+			Status: v1beta1.ExtendedResourceStatus{
+				Phase: v1beta1.ExtendedResourceAvailable,
+				Capacity: corev1.ResourceList{
+					GPUMemory: *resource.NewQuantity(gpuMemory, resource.BinarySI),
+					GPUThread: *resource.NewQuantity(GPUThreadCapacity, resource.DecimalSI),
+				},
+				Allocatable: corev1.ResourceList{
+					GPUMemory: *resource.NewQuantity(gpuMemory, resource.BinarySI),
+					GPUThread: *resource.NewQuantity(GPUThreadCapacity, resource.DecimalSI),
+				},
+			},
+		}
+
+		if er, err := m.clientset.Get(erName, metav1.GetOptions{}); err == nil {
+			er.Labels = extendedResource.Labels
+			er.Spec = extendedResource.Spec
+			er.Status = extendedResource.Status
+
+			if _, err := m.clientset.Update(er); err != nil {
+				log.Printf("Update extended resource failed: %+v", err)
+			} else {
+				log.Printf("Update extended resource %v succeed", erName)
+			}
+			continue
+		} else if !errors.IsNotFound(err) {
+			log.Printf("Unexpected error: %+v", err)
+			continue
+		}
+
+		// er is not found, so create it.
+		if _, err := m.clientset.Create(extendedResource); err != nil {
+			log.Printf("Create extended resource failed: %+v", err)
+		} else {
+			log.Printf("Create extended resource %v succeed", erName)
+		}
+	}
+}
+
+func (m *NvidiaDevicePlugin) updateER(d *pluginapi.Device, phase v1beta1.ExtendedResourcePhase) {
+	er, err := m.clientset.Get(formatExtendedName(d.ID), metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return
+		}
+		log.Printf("Get extended resource failed: %+v", err)
+		return
+	}
+
+	er.Status.Phase = phase
+	if _, err = m.clientset.Update(er); err != nil {
+		log.Printf("Update extended resource failed: %+v", err)
+	}
+}
+
+// deleteAllERs delete all ExtendedResources on the node
+func (m *NvidiaDevicePlugin) deleteAllERs() {
+	ers, err := m.clientset.List(metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("hostname=%s", m.nodeName),
+	})
+	if err != nil {
+		log.Printf("List extended resource failed: %+v", err)
+		return
+	}
+
+	for _, er := range ers.Items {
+		if err := m.clientset.Delete(er.Name, &metav1.DeleteOptions{}); err != nil {
+			log.Printf("Delete extended resource: %v", err)
+		}
+	}
+}
+
+func formatExtendedName(deviceID string) string {
+	return fmt.Sprintf("%s-%s", formatResourceName, strings.ToLower(deviceID))
+}
+
+func convertString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func appendString(s string, suffix string) string {
+	return fmt.Sprintf("%s%s", s, suffix)
+}
+
+func convertUint(i *uint) string {
+	if i == nil {
+		return "0"
+	}
+	return fmt.Sprintf("%d", *i)
+}
+
+func convertUint64(i *uint64) string {
+	if i == nil {
+		return "0"
+	}
+	return fmt.Sprintf("%d", *i)
+}
+
+func convertInt64(i *uint64) int64 {
+	if i == nil {
+		return 0
+	}
+	return int64(*i)
 }
