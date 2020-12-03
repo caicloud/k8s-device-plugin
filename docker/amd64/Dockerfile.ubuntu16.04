@@ -20,17 +20,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         wget && \
     rm -rf /var/lib/apt/lists/*
 
-ENV GOLANG_VERSION 1.10.3
+ENV GOLANG_VERSION 1.15.2
 RUN wget -nv -O - https://storage.googleapis.com/golang/go${GOLANG_VERSION}.linux-amd64.tar.gz \
     | tar -C /usr/local -xz
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
 
-WORKDIR /go/src/nvidia-device-plugin
+WORKDIR /go/src/github.com/NVIDIA/k8s-device-plugin
 COPY . .
 
 RUN export CGO_LDFLAGS_ALLOW='-Wl,--unresolved-symbols=ignore-in-object-files' && \
-    go install -ldflags="-s -w" -v nvidia-device-plugin
+    go build -i -v -o ./bin/nvidia-device-plugin -ldflags="-s -w"
 
 
 FROM nvcr.io/nvidia/cuda:11.1-base-ubuntu16.04
@@ -39,6 +39,6 @@ ENV NVIDIA_DISABLE_REQUIRE="true"
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=utility
 
-COPY --from=build /go/bin/nvidia-device-plugin /usr/bin/nvidia-device-plugin
+COPY --from=build /go/src/github.com/NVIDIA/k8s-device-plugin/bin/nvidia-device-plugin /usr/bin/nvidia-device-plugin
 
 ENTRYPOINT ["nvidia-device-plugin"]

@@ -29,8 +29,13 @@ replace (
 require (
 	github.com/NVIDIA/go-gpuallocator v0.2.1
 	github.com/NVIDIA/gpu-monitoring-tools v0.0.0-20201117195648-87592e0a46df
+	github.com/caicloud/mantle v0.0.0-20201130082518-7cf67ec499e5
 	github.com/fsnotify/fsnotify v1.4.9
 	golang.org/x/net v0.0.0-20200707034311-ab3426394381
 	google.golang.org/grpc v1.29.0
+	k8s.io/api v0.19.3
+	k8s.io/apimachinery v0.19.3
+	k8s.io/client-go v0.19.3
+	k8s.io/klog/v2 v2.2.0
 	k8s.io/kubelet v0.0.0
 )

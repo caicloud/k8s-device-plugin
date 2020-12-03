@@ -34,7 +34,7 @@ const (
 // Device couples an underlying pluginapi.Device type with its device node path
 type Device struct {
 	pluginapi.Device
-	Path string
+	nvDevice *nvml.Device
 }
 
 // ResourceManager provides an interface for listing a set of Devices and checking health on them
@@ -82,7 +82,7 @@ func (g *GpuDeviceManager) Devices() []*Device {
 
 	var devs []*Device
 	for i := uint(0); i < n; i++ {
-		d, err := nvml.NewDeviceLite(i)
+		d, err := nvml.NewDevice(i)
 		check(err)
 
 		migEnabled, err := d.IsMigEnabled()
@@ -105,7 +105,7 @@ func (m *MigDeviceManager) Devices() []*Device {
 
 	var devs []*Device
 	for i := uint(0); i < n; i++ {
-		d, err := nvml.NewDeviceLite(i)
+		d, err := nvml.NewDevice(i)
 		check(err)
 
 		migEnabled, err := d.IsMigEnabled()
@@ -143,7 +143,7 @@ func buildDevice(d *nvml.Device) *Device {
 	dev := Device{}
 	dev.ID = d.UUID
 	dev.Health = pluginapi.Healthy
-	dev.Path = d.Path
+	dev.nvDevice = d
 	if d.CPUAffinity != nil {
 		dev.Topology = &pluginapi.TopologyInfo{
 			Nodes: []*pluginapi.NUMANode{

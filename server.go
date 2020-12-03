@@ -56,6 +56,8 @@ type NvidiaDevicePlugin struct {
 	cachedDevices []*Device
 	health        chan *Device
 	stop          chan interface{}
+
+	kubeClient *KubeClient
 }
 
 // NewNvidiaDevicePlugin returns an initialized NvidiaDevicePlugin
@@ -73,6 +75,7 @@ func NewNvidiaDevicePlugin(resourceName string, resourceManager ResourceManager,
 		server:        nil,
 		health:        nil,
 		stop:          nil,
+		kubeClient:    nil,
 	}
 }
 
@@ -91,12 +94,25 @@ func (m *NvidiaDevicePlugin) cleanup() {
 	m.stop = nil
 }
 
+// SetKubeClient set kubernetes client
+func (m *NvidiaDevicePlugin) SetKubeClient(kubeClient *KubeClient) {
+	m.kubeClient = kubeClient
+}
+
 // Start starts the gRPC server, registers the device plugin with the Kubelet,
 // and starts the device healthchecks.
 func (m *NvidiaDevicePlugin) Start() error {
 	m.initialize()
 
-	err := m.Serve()
+	log.Printf("Sync device information to extended resource")
+	err := m.kubeClient.SyncExtendedResources(context.TODO(), m.cachedDevices, m.resourceName)
+	if err != nil {
+		log.Printf("Could not sync '%s' device information to extended resource: %s", m.resourceName, err)
+		m.cleanup()
+		return err
+	}
+
+	err = m.Serve()
 	if err != nil {
 		log.Printf("Could not start device plugin for '%s': %s", m.resourceName, err)
 		m.cleanup()
@@ -127,6 +143,8 @@ func (m *NvidiaDevicePlugin) Stop() error {
 	if err := os.Remove(m.socket); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+
+	m.kubeClient.CleanupExtendedResources(context.TODO(), m.cachedDevices)
 	m.cleanup()
 	return nil
 }
@@ -227,6 +245,7 @@ func (m *NvidiaDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.Device
 			d.Health = pluginapi.Unhealthy
 			log.Printf("'%s' device marked unhealthy: %s", m.resourceName, d.ID)
 			s.Send(&pluginapi.ListAndWatchResponse{Devices: m.apiDevices()})
+			m.kubeClient.MarkDeviceUnhealthy(context.TODO(), d.ID)
 		}
 	}
 }
@@ -373,8 +392,8 @@ func (m *NvidiaDevicePlugin) apiDeviceSpecs(filter []string) []*pluginapi.Device
 		for _, id := range filter {
 			if d.ID == id {
 				spec := &pluginapi.DeviceSpec{
-					ContainerPath: d.Path,
-					HostPath:      d.Path,
+					ContainerPath: d.nvDevice.Path,
+					HostPath:      d.nvDevice.Path,
 					Permissions:   "rw",
 				}
 				specs = append(specs, spec)
