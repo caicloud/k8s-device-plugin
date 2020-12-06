@@ -24,6 +24,7 @@ import (
 
 	"github.com/NVIDIA/gpu-monitoring-tools/bindings/go/nvml"
 	"github.com/fsnotify/fsnotify"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
@@ -49,12 +50,31 @@ var deviceListStrategyFlag = flag.String(
 	"the desired strategy for passing the device list to the underlying runtime\n"+
 		"[envvar | volume-mounts]")
 
+var kubeConfig = flag.String(
+	"kube-config",
+	"",
+	"path to the kubeconfig file to use for requests.")
+
+var nodeName = flag.String(
+	"node-name",
+	"",
+	"the name of the node where the plugin is running.")
+
 func main() {
+	klog.InitFlags(nil)
 	flag.Parse()
 
 	if *deviceListStrategyFlag != DeviceListStrategyEnvvar && *deviceListStrategyFlag != DeviceListStrategyVolumeMounts {
 		log.SetOutput(os.Stderr)
 		log.Printf("Invalid --device-list-strategy option: %v", *deviceListStrategyFlag)
+		os.Exit(1)
+	}
+
+	log.Println("Create Kubernetes client")
+	kubeClient, err := NewKubeClient(*kubeConfig, *nodeName)
+	if err != nil {
+		log.SetOutput(os.Stderr)
+		log.Printf("%s", err.Error())
 		os.Exit(1)
 	}
 
@@ -112,6 +132,9 @@ restart:
 		if len(p.Devices()) == 0 {
 			continue
 		}
+
+		// set kubernetes client
+		p.SetKubeClient(kubeClient)
 
 		// Start the gRPC server for plugin p and connect it with the kubelet.
 		if err := p.Start(); err != nil {
