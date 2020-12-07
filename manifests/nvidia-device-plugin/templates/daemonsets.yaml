@@ -1,0 +1,26 @@
+{{- range $dsName, $ds := .Values.daemonSets }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $dsName }}
+  namespace: {{ $.Release.Namespace | quote }}
+  {{- include "ds.labels" ( dict "commonLabels" $.Values.commonLabels "context" $ ) | indent 2 }}
+  {{- include "ds.annotations" ( dict "commonAnnotations" $.Values.commonAnnotations "context" $ ) | indent 2 }}
+spec:
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" $ | nindent 6 }}
+  template:
+    metadata:
+      {{- include "pod.labels" ( dict "podLabels" $ds.podLabels "context" $) | indent 6 }}
+      {{- include "pod.annotations" ( dict "podLabels" $ds.podAnnotations "context" $) | indent 6 }}
+    spec:
+      {{- include "pod.serviceAccountName" ( dict "serviceAccountName" $ds.serviceAccountName "context" $) | indent 6 }}
+      {{- include "pod.priorityClassName" ( dict "priorityClassName" $ds.priorityClassName "context" $) | indent 6 }}
+      {{- include "pod.nodeSelector" ( dict "nodeSelector" $ds.nodeSelector "context" $) | indent 6 }}
+      {{- include "pod.affinity" ( dict "affinity" $ds.affinity "context" $) | indent 6 }}
+      {{- include "pod.tolerations" ( dict "tolerations" $ds.tolerations "context" $) | indent 6 }}
+      {{- include "pod.volumes" ( dict "volumes" $ds.volumes "context" $) | indent 6 }}
+      {{- include "pod.initContainers" ( dict "initContainers" $ds.initContainers "context" $ ) | indent 6 }}
+      {{- include "pod.containers" ( dict "containers" $ds.containers "context" $ ) | indent 6 }}
+{{- end }}

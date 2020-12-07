@@ -1,0 +1,27 @@
+{{- range $deploymentName, $deployment := .Values.deployments }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $deploymentName }}
+  namespace: {{ $.Release.Namespace | quote }}
+  {{- include "deployment.labels" ( dict "commonLabels" $.Values.commonLabels "context" $ ) | indent 2 }}
+  {{- include "deployment.annotations" ( dict "commonAnnotations" $.Values.commonAnnotations "context" $ ) | indent 2 }}
+spec:
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" $ | nindent 6 }}
+  replicas: {{ default 1 $deployment.replicas }}
+  template:
+    metadata:
+      {{- include "pod.labels" ( dict "podLabels" $deployment.podLabels "context" $ ) | indent 6 }}
+      {{- include "pod.annotations" ( dict "podLabels" $deployment.podAnnotations "context" $ ) | indent 6 }}
+    spec:
+      {{- include "pod.serviceAccountName" ( dict "serviceAccountName" $deployment.serviceAccountName "context" $) | indent 6 }}
+      {{- include "pod.priorityClassName" ( dict "priorityClassName" $deployment.priorityClassName "context" $) | indent 6 }}
+      {{- include "pod.nodeSelector" ( dict "nodeSelector" $deployment.nodeSelector "context" $ ) | indent 6 }}
+      {{- include "pod.affinity" ( dict "affinity" $deployment.affinity "context" $ ) | indent 6 }}
+      {{- include "pod.tolerations" ( dict "tolerations" $deployment.tolerations "context" $ ) | indent 6 }}
+      {{- include "pod.volumes" ( dict "volumes" $deployment.volumes "context" $ ) | indent 6 }}
+      {{- include "pod.initContainers" ( dict "initContainers" $deployment.initContainers "context" $ ) | indent 6 }}
+      {{- include "pod.containers" ( dict "containers" $deployment.containers "context" $ ) | indent 6 }}
+{{- end }}
