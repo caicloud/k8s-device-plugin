@@ -1,0 +1,48 @@
+daemonSets:
+  nvidia-device-plugin-daemonset:
+    volumes:
+      device-plugin:
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+    podLabels:
+      name: nvidia-device-plugin-ds
+    podAnnotations:
+      scheduler.alpha.kubernetes.io/critical-pod: ""
+    tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+    serviceAccountName: nvidia-device-plugin-sa
+    priorityClassName: "system-node-critical"
+    containers:
+      nvidia-device-plugin-ctr:
+        image:
+          registry: cargo.caicloud.xyz/release
+          name: nvidia-device-plugin
+          tag: v0.7.1-er
+          pullPolicy: IfNotPresent
+        args:
+        - --fail-on-init-error=false
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ "ALL" ]
+        resources:
+          useDefault: false
+          limits:
+            cpu: 200m
+            memory: 300Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        mounts:
+          device-plugin:
+            path: /var/lib/kubelet/device-plugins
