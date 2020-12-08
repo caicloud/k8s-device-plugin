@@ -8,6 +8,13 @@ daemonSets:
       name: nvidia-device-plugin-ds
     podAnnotations:
       scheduler.alpha.kubernetes.io/critical-pod: ""
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: "nvidia.com/gpu"
+              operator: Exists
     tolerations:
     - key: CriticalAddonsOnly
       operator: Exists
@@ -19,7 +26,7 @@ daemonSets:
     containers:
       nvidia-device-plugin-ctr:
         image:
-          registry: cargo.caicloud.xyz/release
+          registry: "{{ .registryRelease }}"
           name: nvidia-device-plugin
           tag: v0.7.1-er
           pullPolicy: IfNotPresent
